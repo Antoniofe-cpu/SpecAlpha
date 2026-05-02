@@ -1,89 +1,331 @@
-from fastapi import FastAPI, APIRouter
-from dotenv import load_dotenv
-from starlette.middleware.cors import CORSMiddleware
-from motor.motor_asyncio import AsyncIOMotorClient
-import os
-import logging
-from pathlib import Path
-from pydantic import BaseModel, Field, ConfigDict
-from typing import List
-import uuid
-from datetime import datetime, timezone
+"""
+Speculative Alpha — Institutional COT Dashboard backend.
 
+Endpoints (all prefixed with /api):
+  GET  /api/assets                         → list of available assets (core + expansion)
+  GET  /api/cot/{asset_id}                 → latest COT snapshot + AI insight
+  GET  /api/cot/{asset_id}/history?limit=N → historical series
+  GET  /api/cot/bulk                       → snapshots for all assets (used for dashboard)
+  POST /api/cot/refresh                    → invalidate cache and refetch
+  GET  /api/health                         → readiness probe
+"""
+from __future__ import annotations
+
+import asyncio
+import logging
+import os
+from datetime import datetime, timezone, timedelta
+from pathlib import Path
+from typing import List, Optional, Dict, Any
+
+from dotenv import load_dotenv
+from fastapi import FastAPI, APIRouter, HTTPException, Query
+from motor.motor_asyncio import AsyncIOMotorClient
+from pydantic import BaseModel
+from starlette.middleware.cors import CORSMiddleware
+
+from cot_scraper import (
+    ASSET_MAP,
+    fetch_cot_history,
+    fetch_cot_latest,
+)
 
 ROOT_DIR = Path(__file__).parent
-load_dotenv(ROOT_DIR / '.env')
+load_dotenv(ROOT_DIR / ".env")
 
-# MongoDB connection
-mongo_url = os.environ['MONGO_URL']
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+logger = logging.getLogger("server")
+
+mongo_url = os.environ["MONGO_URL"]
 client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+db = client[os.environ["DB_NAME"]]
 
-# Create the main app without a prefix
-app = FastAPI()
+CACHE_TTL_HOURS = int(os.environ.get("COT_CACHE_TTL_HOURS", "6"))
+EMERGENT_LLM_KEY = os.environ.get("EMERGENT_LLM_KEY")
 
-# Create a router with the /api prefix
-api_router = APIRouter(prefix="/api")
+# ---------------------------------------------------------------------------
+# AI Insight (Gemini via emergentintegrations)
+# ---------------------------------------------------------------------------
+
+async def generate_macro_insight(asset_id: str, snapshot: Dict[str, Any]) -> str:
+    """Generate a short institutional-style macro insight using Gemini."""
+    delta = snapshot.get("wowDelta", 0)
+    net = snapshot.get("netPosition", 0)
+    sentiment = "Bullish Flow" if delta > 0 else "Bearish Flow"
+    if abs(delta) > 10000:
+        action = "Forte Accumulo" if delta > 0 else "Forte Distribuzione"
+    else:
+        action = "Accumulo" if delta > 0 else "Distribuzione"
+
+    fallback = (
+        f"Mood: {sentiment}. {action} Non-Commercial. "
+        f"Net {net:+,} (Δ {delta:+,}). Watch divergenza prezzo/posizioni."
+    )
+
+    if not EMERGENT_LLM_KEY:
+        return fallback
+
+    try:
+        # Lazy import so backend still works if package unavailable
+        from emergentintegrations.llm.chat import LlmChat, UserMessage  # type: ignore
+
+        chat = LlmChat(
+            api_key=EMERGENT_LLM_KEY,
+            session_id=f"cot-{asset_id}",
+            system_message=(
+                "Sei un Senior Macro Strategist di un Institutional Desk Bloomberg. "
+                "Analizzi flussi COT (Commitment of Traders) Non-Commercial e generi "
+                "insight macro tecnici. Tono tagliente, professionale, italiano. "
+                "Niente intro, solo analisi sintetica."
+            ),
+        ).with_model("gemini", "gemini-2.5-flash")
+
+        prompt = (
+            f"Asset: {asset_id} ({ASSET_MAP[asset_id]['name']}).\n"
+            f"Posizione Netta: {net:+,}\n"
+            f"Variazione WoW: {delta:+,}\n"
+            f"Long: {snapshot.get('long', 0):,} | Short: {snapshot.get('short', 0):,}\n"
+            f"Open Interest Share: {snapshot.get('openInterestShare', 0)}%\n"
+            f"Sentiment flussi: {action} Non-Commercial.\n\n"
+            "OUTPUT: 1-2 frasi (max 180 caratteri) in stile Bloomberg analyst note. "
+            "Sintetizza posizionamento, momentum settimanale e implicazioni operative."
+        )
+
+        msg = UserMessage(text=prompt)
+        response = await chat.send_message(msg)
+        text = (response or "").strip().strip('"').strip("'")
+        return text[:240] if len(text) > 10 else fallback
+    except Exception as e:  # noqa: BLE001
+        logger.warning("AI insight failed for %s: %s", asset_id, e)
+        return fallback
 
 
-# Define Models
-class StatusCheck(BaseModel):
-    model_config = ConfigDict(extra="ignore")  # Ignore MongoDB's _id field
-    
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    client_name: str
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+# ---------------------------------------------------------------------------
+# Cache helpers (MongoDB)
+# ---------------------------------------------------------------------------
 
-class StatusCheckCreate(BaseModel):
-    client_name: str
+CACHE_COLL = "cot_cache"
+HISTORY_COLL = "cot_history_cache"
 
-# Add your routes to the router instead of directly to app
-@api_router.get("/")
-async def root():
-    return {"message": "Hello World"}
 
-@api_router.post("/status", response_model=StatusCheck)
-async def create_status_check(input: StatusCheckCreate):
-    status_dict = input.model_dump()
-    status_obj = StatusCheck(**status_dict)
-    
-    # Convert to dict and serialize datetime to ISO string for MongoDB
-    doc = status_obj.model_dump()
-    doc['timestamp'] = doc['timestamp'].isoformat()
-    
-    _ = await db.status_checks.insert_one(doc)
-    return status_obj
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
 
-@api_router.get("/status", response_model=List[StatusCheck])
-async def get_status_checks():
-    # Exclude MongoDB's _id field from the query results
-    status_checks = await db.status_checks.find({}, {"_id": 0}).to_list(1000)
-    
-    # Convert ISO string timestamps back to datetime objects
-    for check in status_checks:
-        if isinstance(check['timestamp'], str):
-            check['timestamp'] = datetime.fromisoformat(check['timestamp'])
-    
-    return status_checks
 
-# Include the router in the main app
-app.include_router(api_router)
+async def get_cached(asset_id: str) -> Optional[Dict[str, Any]]:
+    doc = await db[CACHE_COLL].find_one({"_id": asset_id}, {"_id": 0})
+    if not doc:
+        return None
+    fetched_at = datetime.fromisoformat(doc["fetchedAt"])
+    if _now() - fetched_at > timedelta(hours=CACHE_TTL_HOURS):
+        return None
+    return doc["data"]
+
+
+async def set_cached(asset_id: str, data: Dict[str, Any]) -> None:
+    await db[CACHE_COLL].update_one(
+        {"_id": asset_id},
+        {"$set": {"data": data, "fetchedAt": _now().isoformat()}},
+        upsert=True,
+    )
+
+
+async def get_cached_history(asset_id: str) -> Optional[List[Dict[str, Any]]]:
+    doc = await db[HISTORY_COLL].find_one({"_id": asset_id}, {"_id": 0})
+    if not doc:
+        return None
+    fetched_at = datetime.fromisoformat(doc["fetchedAt"])
+    if _now() - fetched_at > timedelta(hours=CACHE_TTL_HOURS):
+        return None
+    return doc["data"]
+
+
+async def set_cached_history(asset_id: str, data: List[Dict[str, Any]]) -> None:
+    await db[HISTORY_COLL].update_one(
+        {"_id": asset_id},
+        {"$set": {"data": data, "fetchedAt": _now().isoformat()}},
+        upsert=True,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Pydantic response models
+# ---------------------------------------------------------------------------
+
+class AssetMeta(BaseModel):
+    assetId: str
+    name: str
+    type: str
+    core: bool
+
+
+class CotSnapshot(BaseModel):
+    assetId: str
+    name: str
+    type: str
+    long: int
+    short: int
+    changeLong: int
+    changeShort: int
+    netPosition: int
+    wowDelta: int
+    openInterest: int
+    openInterestShare: float
+    pctLong: float
+    pctShort: float
+    longPctChange: float
+    shortPctChange: float
+    intensityIndex: int
+    reportDate: str
+    macro: Optional[str] = None
+    fetchedAt: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# FastAPI setup
+# ---------------------------------------------------------------------------
+
+app = FastAPI(title="Speculative Alpha COT API", version="1.0.0")
+api = APIRouter(prefix="/api")
+
+
+@api.get("/health")
+async def health() -> Dict[str, Any]:
+    return {"status": "ok", "time": _now().isoformat()}
+
+
+@api.get("/assets", response_model=List[AssetMeta])
+async def list_assets() -> List[AssetMeta]:
+    return [
+        AssetMeta(assetId=k, name=v["name"], type=v["type"], core=bool(v.get("core")))
+        for k, v in ASSET_MAP.items()
+    ]
+
+
+async def _fetch_snapshot(asset_id: str, force: bool = False) -> Dict[str, Any]:
+    if asset_id not in ASSET_MAP:
+        raise HTTPException(status_code=404, detail=f"Unknown asset {asset_id}")
+
+    if not force:
+        cached = await get_cached(asset_id)
+        if cached:
+            return cached
+
+    raw = await fetch_cot_latest(asset_id)
+    meta = ASSET_MAP[asset_id]
+    snapshot: Dict[str, Any] = {
+        "assetId": asset_id,
+        "name": meta["name"],
+        "type": meta["type"],
+        **raw,
+    }
+    snapshot["macro"] = await generate_macro_insight(asset_id, snapshot)
+    snapshot["fetchedAt"] = _now().isoformat()
+    await set_cached(asset_id, snapshot)
+    return snapshot
+
+
+@api.get("/cot/bulk", response_model=List[CotSnapshot])
+async def cot_bulk(
+    scope: str = Query("core", description="core | all"),
+    refresh: bool = Query(False),
+) -> List[CotSnapshot]:
+    asset_ids = [
+        k for k, v in ASSET_MAP.items()
+        if scope == "all" or v.get("core")
+    ]
+    # Limit concurrency to be polite
+    sem = asyncio.Semaphore(4)
+
+    async def runner(aid: str) -> Optional[Dict[str, Any]]:
+        async with sem:
+            try:
+                return await _fetch_snapshot(aid, force=refresh)
+            except Exception as e:  # noqa: BLE001
+                logger.exception("snapshot failed %s: %s", aid, e)
+                return None
+
+    results = await asyncio.gather(*[runner(a) for a in asset_ids])
+    return [CotSnapshot(**r) for r in results if r]
+
+
+@api.get("/cot/{asset_id}", response_model=CotSnapshot)
+async def cot_one(asset_id: str, refresh: bool = Query(False)) -> CotSnapshot:
+    data = await _fetch_snapshot(asset_id.upper(), force=refresh)
+    return CotSnapshot(**data)
+
+
+@api.get("/cot/{asset_id}/history")
+async def cot_history(asset_id: str, limit: int = Query(60, ge=1, le=200), refresh: bool = Query(False)) -> List[Dict[str, Any]]:
+    asset_id = asset_id.upper()
+    if asset_id not in ASSET_MAP:
+        raise HTTPException(status_code=404, detail="Unknown asset")
+    if not refresh:
+        cached = await get_cached_history(asset_id)
+        if cached:
+            return cached[:limit]
+    data = await fetch_cot_history(asset_id, limit=200)
+    await set_cached_history(asset_id, data)
+    return data[:limit]
+
+
+@app.post("/api/cot/refresh")
+async def refresh_all() -> Dict[str, Any]:
+    """Invalidate cache for all assets (used by Saturday cron and manual refresh)."""
+    await db[CACHE_COLL].delete_many({})
+    await db[HISTORY_COLL].delete_many({})
+    return {"status": "cache cleared", "time": _now().isoformat()}
+
+
+app.include_router(api)
 
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
+    allow_origins=os.environ.get("CORS_ORIGINS", "*").split(","),
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Saturday refresh background task
+# ---------------------------------------------------------------------------
+
+_refresh_task: Optional[asyncio.Task] = None
+
+
+async def _saturday_refresh_loop() -> None:
+    """Every Saturday at 22:00 UTC clear caches so next request returns fresh data."""
+    while True:
+        try:
+            now = _now()
+            # Compute next Saturday 22:00 UTC
+            days_ahead = (5 - now.weekday()) % 7  # Monday=0, Saturday=5
+            target = (now + timedelta(days=days_ahead)).replace(hour=22, minute=0, second=0, microsecond=0)
+            if target <= now:
+                target += timedelta(days=7)
+            wait_seconds = (target - now).total_seconds()
+            logger.info("Next COT cache refresh in %.1f hours (%s)", wait_seconds / 3600, target.isoformat())
+            await asyncio.sleep(wait_seconds)
+            logger.info("Saturday refresh: clearing COT cache")
+            await db[CACHE_COLL].delete_many({})
+            await db[HISTORY_COLL].delete_many({})
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            logger.exception("Saturday refresh loop error: %s", e)
+            await asyncio.sleep(3600)
+
+
+@app.on_event("startup")
+async def on_startup() -> None:
+    global _refresh_task
+    _refresh_task = asyncio.create_task(_saturday_refresh_loop())
+
 
 @app.on_event("shutdown")
-async def shutdown_db_client():
+async def on_shutdown() -> None:
+    if _refresh_task:
+        _refresh_task.cancel()
     client.close()
