@@ -25,7 +25,7 @@ HEADERS = {
 
 # CFTC contract codes used by tradingster URLs
 ASSET_MAP: Dict[str, Dict[str, Any]] = {
-    "SP500":   {"code": "13874P", "name": "S&P 500",        "type": "INDEX",     "core": True},
+    "SP500":   {"code": "13874A", "name": "S&P 500 E-Mini", "type": "INDEX",     "core": True},
     "NAS100":  {"code": "209742", "name": "NASDAQ 100",     "type": "INDEX",     "core": True},
     "DOW":     {"code": "12460P", "name": "Dow Jones",      "type": "INDEX",     "core": False},
     "RUSSELL": {"code": "239742", "name": "Russell 2000",   "type": "INDEX",     "core": False},
@@ -44,7 +44,6 @@ ASSET_MAP: Dict[str, Dict[str, Any]] = {
     "USDCAD":  {"code": "090741", "name": "Loonie (CAD)",   "type": "CURRENCY",  "core": False},
     "USDCHF":  {"code": "092741", "name": "Franco (CHF)",   "type": "CURRENCY",  "core": False},
     "NZDUSD":  {"code": "112741", "name": "Kiwi (NZD)",     "type": "CURRENCY",  "core": False},
-    "USDMXN":  {"code": "095741", "name": "Peso (MXN)",     "type": "CURRENCY",  "core": False},
     "BTC":     {"code": "133741", "name": "Bitcoin",        "type": "COMMODITY", "core": False},
 }
 

@@ -103,23 +103,25 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                     exit={{ opacity: 0, scale: 0.96 }}
                     transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
                     onClick={(e) => e.stopPropagation()}
-                    className="relative bg-[#0a0a0a] border border-white/10 rounded-2xl w-full max-w-6xl my-8 shadow-[0_40px_120px_rgba(0,0,0,0.8)]"
+                    className="relative bg-[#0a0a0d] border border-white/10 rounded-[32px] w-full max-w-6xl my-8 shadow-[0_40px_120px_rgba(0,0,0,0.8)]"
                     data-testid="detail-modal"
                 >
                     {/* Header */}
-                    <div className="flex flex-wrap items-center justify-between gap-4 p-6 sm:p-8 border-b border-white/5">
+                    <div className="flex flex-wrap items-center justify-between gap-4 p-7 sm:p-9 border-b border-white/5">
                         <div className="flex items-center gap-4">
-                            <div className="w-12 h-12 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center">
-                                <TrendingUp className="text-amber-400" size={22} />
+                            <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center">
+                                <TrendingUp className="text-amber-400" size={24} />
                             </div>
                             <div>
-                                <div className="text-[10px] tracking-[0.3em] uppercase font-bold text-amber-400 mb-1">
+                                <div className="text-[12px] tracking-[0.3em] uppercase font-bold text-amber-400 mb-1">
                                     {snapshot.type} • {snapshot.assetId}
                                 </div>
-                                <h2 className="font-display text-2xl sm:text-3xl font-bold text-white">{snapshot.name}</h2>
-                                <div className="flex items-center gap-2 mt-1.5">
-                                    <Calendar size={11} className="text-gray-500" />
-                                    <span className="text-[11px] font-mono text-gray-500">
+                                <h2 className="font-display text-3xl sm:text-[34px] font-bold text-white leading-tight">
+                                    {snapshot.name}
+                                </h2>
+                                <div className="flex items-center gap-2 mt-2">
+                                    <Calendar size={13} className="text-gray-500" />
+                                    <span className="text-[13px] font-mono text-gray-400">
                                         Report {snapshot.reportDate}
                                     </span>
                                 </div>
@@ -130,53 +132,53 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                 data-testid="modal-refresh-btn"
                                 onClick={handleRefresh}
                                 disabled={refreshing}
-                                className="px-3 py-2 text-xs font-bold uppercase tracking-wider bg-white/5 hover:bg-white/10 border border-white/10 rounded-md flex items-center gap-2 transition-colors"
+                                className="px-4 py-2.5 text-[12px] font-semibold uppercase tracking-[0.18em] bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 rounded-2xl flex items-center gap-2 transition-colors"
                             >
-                                <RefreshCw size={12} className={cn(refreshing && 'animate-spin')} />
+                                <RefreshCw size={14} className={cn(refreshing && 'animate-spin')} />
                                 Refresh
                             </button>
                             <button
                                 data-testid="modal-export-btn"
                                 onClick={handleExport}
-                                className="px-3 py-2 text-xs font-bold uppercase tracking-wider bg-white/5 hover:bg-amber-500/20 hover:border-amber-500/40 border border-white/10 rounded-md flex items-center gap-2 transition-colors"
+                                className="px-4 py-2.5 text-[12px] font-semibold uppercase tracking-[0.18em] bg-white/[0.06] hover:bg-amber-500/15 hover:border-amber-500/40 border border-white/10 rounded-2xl flex items-center gap-2 transition-colors"
                             >
-                                <Download size={12} /> CSV
+                                <Download size={14} /> CSV
                             </button>
                             <button
                                 data-testid="modal-close-btn"
                                 onClick={onClose}
-                                className="p-2.5 rounded-md hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
+                                className="p-3 rounded-full hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
                             >
-                                <X size={18} />
+                                <X size={20} />
                             </button>
                         </div>
                     </div>
 
                     {/* Body */}
-                    <div className="p-6 sm:p-8 space-y-8">
+                    <div className="p-7 sm:p-9 space-y-8">
                         {/* Top metrics */}
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                            <div className="bg-[#0e0e0e] border border-white/5 rounded-xl p-5">
-                                <div className="text-[9px] tracking-[0.3em] uppercase text-gray-500 font-bold mb-2">
+                            <div className="bg-[#0e0e14] border border-white/[0.07] rounded-3xl p-5">
+                                <div className="text-[11px] tracking-[0.28em] uppercase text-gray-400 font-semibold mb-2">
                                     Sentiment Globale
                                 </div>
                                 <div className={cn('font-display text-2xl font-bold mb-1', TONE_CLASSES[trend.tone])}>
                                     {trend.signal}
                                 </div>
-                                <div className="text-[11px] text-gray-500">
-                                    Long-term: <span className="text-gray-300 font-mono">{trend.longTerm}</span> · Short-term:{' '}
-                                    <span className="text-gray-300 font-mono">{trend.shortTerm}</span>
+                                <div className="text-[13px] text-gray-400">
+                                    Long-term: <span className="text-gray-200 font-mono">{trend.longTerm}</span> · Short-term:{' '}
+                                    <span className="text-gray-200 font-mono">{trend.shortTerm}</span>
                                 </div>
                             </div>
-                            <div className="bg-[#0e0e0e] border border-white/5 rounded-xl p-5">
-                                <div className="text-[9px] tracking-[0.3em] uppercase text-gray-500 font-bold mb-2">
+                            <div className="bg-[#0e0e14] border border-white/[0.07] rounded-3xl p-5">
+                                <div className="text-[11px] tracking-[0.28em] uppercase text-gray-400 font-semibold mb-2">
                                     Net Position
                                 </div>
                                 <div className="font-mono text-3xl font-semibold text-white tnum mb-2">
                                     {formatNumber(snapshot.netPosition)}
                                 </div>
-                                <div className="flex items-center gap-2 text-[11px]">
-                                    <span className="text-gray-500">Δ WoW:</span>
+                                <div className="flex items-center gap-2 text-[13px]">
+                                    <span className="text-gray-400">Δ WoW:</span>
                                     <span
                                         className={cn(
                                             'font-mono font-semibold',
@@ -186,47 +188,47 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                         {formatSigned(snapshot.wowDelta)}
                                     </span>
                                 </div>
-                                <div className="mt-3 h-1.5 w-full bg-white/5 rounded-full overflow-hidden flex">
+                                <div className="mt-3 h-2 w-full bg-white/[0.05] rounded-full overflow-hidden flex">
                                     <div className="h-full bg-[#34d399]" style={{ width: `${longPct}%` }} />
                                     <div className="h-full bg-[#fb7185]" style={{ width: `${100 - longPct}%` }} />
                                 </div>
                             </div>
-                            <div className="bg-amber-500/[0.06] border border-amber-500/20 rounded-xl p-5">
+                            <div className="bg-amber-500/[0.07] border border-amber-500/25 rounded-3xl p-5">
                                 <div className="flex items-center gap-2 mb-2">
-                                    <Activity size={11} className="text-amber-400" />
-                                    <span className="text-[9px] tracking-[0.3em] uppercase text-amber-300 font-bold">
+                                    <Activity size={12} className="text-amber-400" />
+                                    <span className="text-[11px] tracking-[0.28em] uppercase text-amber-300 font-bold">
                                         Macro Intelligence
                                     </span>
                                 </div>
-                                <p className="text-xs leading-relaxed text-gray-200 italic">"{snapshot.macro}"</p>
+                                <p className="text-[14px] leading-relaxed text-gray-200 italic">"{snapshot.macro}"</p>
                             </div>
                         </div>
 
                         {/* Chart */}
-                        <div className="bg-[#0e0e0e] border border-white/5 rounded-xl p-6">
+                        <div className="bg-[#0e0e14] border border-white/[0.07] rounded-3xl p-6">
                             <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
                                 <div>
                                     <div className="flex items-center gap-2">
-                                        <BarChart3 size={14} className="text-amber-400" />
-                                        <h3 className="font-display text-base font-semibold text-white">
+                                        <BarChart3 size={16} className="text-amber-400" />
+                                        <h3 className="font-display text-lg font-bold text-white">
                                             Net Position — Storico Istituzionale
                                         </h3>
                                     </div>
-                                    <p className="text-[10px] tracking-[0.25em] uppercase text-gray-500 mt-1 font-bold">
+                                    <p className="text-[12px] tracking-[0.25em] uppercase text-gray-500 mt-1 font-semibold">
                                         Non-Commercial Speculative Trend
                                     </p>
                                 </div>
-                                <div className="flex items-center gap-1 bg-black/30 rounded-md border border-white/5 p-1">
+                                <div className="flex items-center gap-1 bg-black/30 rounded-2xl border border-white/10 p-1.5">
                                     {[13, 26, 52, 100].map((n) => (
                                         <button
                                             key={n}
                                             data-testid={`window-${n}`}
                                             onClick={() => setWindowSize(n)}
                                             className={cn(
-                                                'px-3 py-1.5 text-[10px] font-mono rounded font-semibold uppercase tracking-wider transition-colors',
+                                                'px-3.5 py-1.5 text-[12px] font-mono rounded-xl font-semibold uppercase tracking-wider transition-colors',
                                                 windowSize === n
                                                     ? 'bg-amber-500 text-black'
-                                                    : 'text-gray-500 hover:text-white'
+                                                    : 'text-gray-400 hover:text-white'
                                             )}
                                         >
                                             {n}w
@@ -234,9 +236,9 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                     ))}
                                 </div>
                             </div>
-                            <div className="h-[320px]">
+                            <div className="h-[340px]">
                                 {loading ? (
-                                    <div className="h-full flex items-center justify-center text-gray-600 text-xs">
+                                    <div className="h-full flex items-center justify-center text-gray-500 text-[13px]">
                                         <RefreshCw size={18} className="animate-spin mr-2 text-amber-400/60" /> Caricamento serie storica…
                                     </div>
                                 ) : chartData.length > 1 ? (
@@ -251,16 +253,16 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                             <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.04)" />
                                             <XAxis
                                                 dataKey="date"
-                                                stroke="#4b5563"
-                                                fontSize={9}
+                                                stroke="#6b7280"
+                                                fontSize={11}
                                                 axisLine={false}
                                                 tickLine={false}
                                                 tickFormatter={(v) => v?.slice(5)}
                                                 tick={{ fontFamily: 'JetBrains Mono' }}
                                             />
                                             <YAxis
-                                                stroke="#4b5563"
-                                                fontSize={9}
+                                                stroke="#6b7280"
+                                                fontSize={11}
                                                 axisLine={false}
                                                 tickLine={false}
                                                 width={60}
@@ -269,10 +271,10 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                             />
                                             <Tooltip
                                                 contentStyle={{
-                                                    backgroundColor: '#0a0a0a',
+                                                    backgroundColor: '#0a0a0d',
                                                     border: '1px solid rgba(245,158,11,0.4)',
-                                                    borderRadius: 8,
-                                                    fontSize: 11,
+                                                    borderRadius: 12,
+                                                    fontSize: 12,
                                                     fontFamily: 'JetBrains Mono',
                                                 }}
                                                 labelStyle={{ color: '#f59e0b' }}
@@ -300,44 +302,44 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
 
                         {/* WoW delta bar chart + table */}
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                            <div className="bg-[#0e0e0e] border border-white/5 rounded-xl p-6">
-                                <h3 className="font-display text-sm font-semibold text-white mb-1">Δ WoW Recente</h3>
-                                <p className="text-[10px] tracking-[0.25em] uppercase text-gray-500 font-bold mb-4">
+                            <div className="bg-[#0e0e14] border border-white/[0.07] rounded-3xl p-6">
+                                <h3 className="font-display text-lg font-bold text-white mb-1">Δ WoW Recente</h3>
+                                <p className="text-[12px] tracking-[0.25em] uppercase text-gray-500 font-semibold mb-4">
                                     Variazione Settimanale Net Position
                                 </p>
-                                <div className="h-[220px]">
+                                <div className="h-[240px]">
                                     {chartData.length > 1 ? (
                                         <ResponsiveContainer width="100%" height="100%">
                                             <BarChart data={chartData.slice(-12)} margin={{ top: 5, right: 5, bottom: 0, left: -8 }}>
                                                 <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.04)" />
                                                 <XAxis
                                                     dataKey="date"
-                                                    stroke="#4b5563"
-                                                    fontSize={9}
+                                                    stroke="#6b7280"
+                                                    fontSize={11}
                                                     axisLine={false}
                                                     tickLine={false}
                                                     tickFormatter={(v) => v?.slice(5)}
                                                     tick={{ fontFamily: 'JetBrains Mono' }}
                                                 />
                                                 <YAxis
-                                                    stroke="#4b5563"
-                                                    fontSize={9}
+                                                    stroke="#6b7280"
+                                                    fontSize={11}
                                                     axisLine={false}
                                                     tickLine={false}
-                                                    width={50}
+                                                    width={56}
                                                     tick={{ fontFamily: 'JetBrains Mono' }}
                                                 />
                                                 <Tooltip
                                                     contentStyle={{
-                                                        backgroundColor: '#0a0a0a',
+                                                        backgroundColor: '#0a0a0d',
                                                         border: '1px solid rgba(255,255,255,0.1)',
-                                                        borderRadius: 8,
-                                                        fontSize: 11,
+                                                        borderRadius: 12,
+                                                        fontSize: 12,
                                                         fontFamily: 'JetBrains Mono',
                                                     }}
                                                     formatter={(v) => formatSigned(v)}
                                                 />
-                                                <Bar dataKey="wowDelta" radius={[3, 3, 0, 0]}>
+                                                <Bar dataKey="wowDelta" radius={[6, 6, 0, 0]}>
                                                     {chartData.slice(-12).map((d, i) => (
                                                         <Cell key={i} fill={d.wowDelta >= 0 ? '#10b981' : '#f43f5e'} />
                                                     ))}
@@ -345,37 +347,37 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                             </BarChart>
                                         </ResponsiveContainer>
                                     ) : (
-                                        <div className="h-full flex items-center justify-center text-gray-700 text-xs">—</div>
+                                        <div className="h-full flex items-center justify-center text-gray-600 text-[13px]">—</div>
                                     )}
                                 </div>
                             </div>
 
-                            <div className="bg-[#0e0e0e] border border-white/5 rounded-xl overflow-hidden">
+                            <div className="bg-[#0e0e14] border border-white/[0.07] rounded-3xl overflow-hidden">
                                 <div className="px-6 pt-6 pb-3">
-                                    <h3 className="font-display text-sm font-semibold text-white mb-1">Tabella Storica</h3>
-                                    <p className="text-[10px] tracking-[0.25em] uppercase text-gray-500 font-bold">
+                                    <h3 className="font-display text-lg font-bold text-white mb-1">Tabella Storica</h3>
+                                    <p className="text-[12px] tracking-[0.25em] uppercase text-gray-500 font-semibold">
                                         Ultimi 8 Report Pubblicati
                                     </p>
                                 </div>
                                 <div className="overflow-x-auto">
-                                    <table className="w-full text-[11px]" data-testid="history-table">
+                                    <table className="w-full text-[13px]" data-testid="history-table">
                                         <thead>
-                                            <tr className="text-[9px] uppercase tracking-[0.2em] text-gray-500 font-bold border-b border-white/5">
-                                                <th className="px-4 py-2.5 text-left">Date</th>
-                                                <th className="px-4 py-2.5 text-right">Long</th>
-                                                <th className="px-4 py-2.5 text-right">Short</th>
-                                                <th className="px-4 py-2.5 text-right">Net</th>
-                                                <th className="px-4 py-2.5 text-right">Δ WoW</th>
+                                            <tr className="text-[11px] uppercase tracking-[0.2em] text-gray-500 font-semibold border-b border-white/5">
+                                                <th className="px-4 py-3 text-left">Date</th>
+                                                <th className="px-4 py-3 text-right">Long</th>
+                                                <th className="px-4 py-3 text-right">Short</th>
+                                                <th className="px-4 py-3 text-right">Net</th>
+                                                <th className="px-4 py-3 text-right">Δ WoW</th>
                                             </tr>
                                         </thead>
                                         <tbody className="font-mono">
                                             {history.slice(0, 8).map((h, i) => (
                                                 <tr key={h.date} className={cn('border-b border-white/[0.04]', i % 2 === 1 && 'bg-white/[0.02]')}>
-                                                    <td className="px-4 py-2.5 text-gray-300">{h.date}</td>
-                                                    <td className="px-4 py-2.5 text-right text-[#34d399]">{formatNumber(h.long)}</td>
-                                                    <td className="px-4 py-2.5 text-right text-[#fb7185]">{formatNumber(h.short)}</td>
-                                                    <td className="px-4 py-2.5 text-right text-white font-semibold">{formatNumber(h.netPosition)}</td>
-                                                    <td className={cn('px-4 py-2.5 text-right font-semibold', h.wowDelta >= 0 ? 'text-[#34d399]' : 'text-[#fb7185]')}>
+                                                    <td className="px-4 py-3 text-gray-200">{h.date}</td>
+                                                    <td className="px-4 py-3 text-right text-[#34d399]">{formatNumber(h.long)}</td>
+                                                    <td className="px-4 py-3 text-right text-[#fb7185]">{formatNumber(h.short)}</td>
+                                                    <td className="px-4 py-3 text-right text-white font-semibold">{formatNumber(h.netPosition)}</td>
+                                                    <td className={cn('px-4 py-3 text-right font-semibold', h.wowDelta >= 0 ? 'text-[#34d399]' : 'text-[#fb7185]')}>
                                                         {formatSigned(h.wowDelta)}
                                                     </td>
                                                 </tr>

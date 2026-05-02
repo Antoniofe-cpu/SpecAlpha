@@ -32,9 +32,10 @@ def test_assets_list(session):
     assert r.status_code == 200
     data = r.json()
     assert isinstance(data, list)
-    assert len(data) == 19, f"Expected 19 assets, got {len(data)}"
+    assert len(data) == 18, f"Expected 18 assets, got {len(data)}"
     ids = {a["assetId"] for a in data}
     assert CORE_IDS.issubset(ids)
+    assert "USDMXN" not in ids, "USDMXN should be removed"
     core_count = sum(1 for a in data if a["core"])
     assert core_count == 7, f"Expected 7 core assets, got {core_count}"
     # type fields valid
@@ -101,7 +102,20 @@ def test_cot_bulk_all(session):
     r = session.get(f"{API}/cot/bulk", params={"scope": "all"}, timeout=180)
     assert r.status_code == 200
     data = r.json()
-    assert len(data) >= 17, f"Expected >= 17 assets in scope=all, got {len(data)}"
+    assert len(data) >= 16, f"Expected >= 16 assets in scope=all, got {len(data)}"
+
+
+# ---------- SP500 E-Mini contract 13874A ----------
+def test_cot_sp500_is_emini(session):
+    r = session.get(f"{API}/cot/SP500", timeout=90)
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["assetId"] == "SP500"
+    assert "E-Mini" in data["name"] or "E-MINI" in data["name"].upper(), (
+        f"Expected E-Mini in name, got {data['name']}"
+    )
+    assert data["long"] > 100_000, f"Expected long > 100k for S&P 500 E-Mini, got {data['long']}"
+    assert data["short"] > 100_000, f"Expected short > 100k for S&P 500 E-Mini, got {data['short']}"
 
 
 # ---------- History ----------

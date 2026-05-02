@@ -1,0 +1,43 @@
+{
+  "summary": "Iteration 3 — Backend 12/12 pytest PASS (added SP500 E-Mini assertion, 18-asset count assertion, USDMXN removal assertion). Frontend verified: (1) 18 asset cards render on ALL scope including 'S&P 500 E-Mini' at top-left with long=244,296 & short=345,736 (E-Mini contract 13874A confirmed); (2) Forex Strength Index renders with 8 rows = 7 currencies (EUR/GBP/JPY/AUD/CAD/CHF/NZD) + USD synthetic, NO MXN, NO flag emoji (€/£/¥/A$/C$/₣/NZ$/MX$ all absent); (3) Pair Compare is integrated inside forex-strength-index (data-testid='forex-pair-compare') with pair-asset-a & pair-asset-b selects whose options contain ONLY currency assetIds + USD synth (no indices/commodities); (4) ONLY one pair-compare on the page (standalone PairCompare removed); (5) Trade Ideas renders 6 cards (>=4) — USDCHF, NZDUSD, GBPUSD, USDCAD, USDJPY, AUDCHF — with 'SCORE GAP' and 'MOMENTUM' metrics displayed (uppercase via CSS); (6) OI Share tooltip via ReactDOM.createPortal + position:fixed: hover opens 280x179 tooltip fully inside viewport (inViewport=True), NOT clipped; (7) Asset detail modal opens cleanly (verified via screenshot of GOLD/Oro modal) with header 'Oro · Report 2026-04-28', Refresh/CSV/Close buttons, 3 metric cards (Sentiment Globale / Net Position / Macro Intelligence), Net Position chart with 13W/26W/52W/100W toggles, Δ WoW + Tabella Storica side-by-side. SP500 E-Mini backend test asserts long & short > 100k — passed (long 244k, short 345k).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/cot/bulk?scope=all", "issue": "Cold cache first call ~30s (18 sequential tradingster scrapes + Gemini). Frontend axios 30s timeout can trip if user hits Refresh or ALL on cold cache — persists from iteration 1."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Cold-start bulk fetch", "issue": "On fresh page load with empty backend cache, CurrencyStrengthIndex + asset grid briefly show 'Errore nel caricamento dati' because axios 30s timeout fires before /api/cot/bulk?scope=all (≈30s) completes. After cache warm, all views render correctly. Still unresolved from iteration 1 action item.", "affected_selectors": ["[data-testid=\"error-banner\"]", "[data-testid=\"currency-strength-index\"]"]}
+    ],
+    "design_issues": [
+      {"screen": "Forex Strength Index", "issues": ["Clean layout; 8-row ranking (7 currencies + USD synth) with net-position bars; Strongest/Weakest highlight cards; integrated Confronto Diretto at bottom."]},
+      {"screen": "Asset cards grid", "issues": ["18 cards render on ALL scope with SP500=S&P 500 E-Mini at position 1. All cards have OI Share info-icon; tooltip portal escapes card overflow correctly."]},
+      {"screen": "Asset detail modal", "issues": ["Matches spec: header+buttons row, 3 metric cards, chart w/ window toggles, bottom Δ WoW chart + Tabella Storica 2-col grid."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_cot_api.py",
+    "/app/test_reports/pytest/iter3_results.xml"
+  ],
+  "action_items": [
+    "(Still open from iter 1) Increase axios timeout in /app/frontend/src/api.js for /cot/bulk to 60-90s OR warm cache at backend startup to avoid 'Errore nel caricamento dati' banner flash on cold page loads.",
+    "(Still open from iter 1) Render skeleton/shimmer placeholders when scope switches from Core (7) to All (18) and snapshots.length>0 so users see progress for the 11 pending asset cards."
+  ],
+  "critical_code_review_comments": [
+    "CurrencyStrengthIndex.jsx line 521: the <select> <option> text 'CODE · Name' uses non-ASCII middle-dot · embedded directly in string template — fine, but confirm cross-browser font rendering.",
+    "CurrencyStrengthIndex.jsx usdSynth: uses synthetic long/short proxies (longSyn/shortSyn) that are based on avgNet sign only — strength score for USD may underweight vs real currencies because their long+short totals are much larger. Consider computing USD long/short as sum of component shorts/longs for a more comparable denominator.",
+    "AssetCard.jsx InfoTooltip: position computed on open via getBoundingClientRect; does not re-position on window resize or scroll. Minor edge case — tooltip can become misaligned if user scrolls while hover is active."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_cot_api.py (updated: 18 asset count, USDMXN-absent assertion, SP500 E-Mini test)"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "95%"},
+  "test_credentials": "N/A - no auth",
+  "seed_data_creation": "None - live data from tradingster.com cached in Mongo",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Re-run backend suite: `cd /app/backend && REACT_APP_BACKEND_URL=<url> pytest tests/test_cot_api.py -v --junitxml=/app/test_reports/pytest/iterN_results.xml`. SP500 asset now uses CFTC code 13874A (E-Mini). Assets list contains 18 ids (USDMXN removed). Frontend: the Forex Strength Index (CurrencyStrengthIndex.jsx) contains the integrated Pair Compare at the bottom — standalone PairCompare removed from App.js. OI Share tooltip uses ReactDOM.createPortal + position:fixed (z-[200]) to escape card overflow. The cold-cache axios timeout issue from iter 1 still occasionally surfaces an error banner until /cot/bulk completes.",
+  "rca of the issue": "All iteration 3 feature targets verified working. Only known pre-existing issue is the 30s axios timeout vs ~30s cold-cache bulk call causing a transient error banner — already documented in iter 1 action items. Once cache is warm (after any first successful call within 6h TTL), the app loads instantly and all features render correctly."
+}

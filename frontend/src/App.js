@@ -15,7 +15,7 @@ import AssetCard from './components/AssetCard';
 import AssetDetailModal from './components/AssetDetailModal';
 import HelpModal from './components/HelpModal';
 import HeatmapStrip from './components/HeatmapStrip';
-import PairCompare from './components/PairCompare';
+import CurrencyStrengthIndex from './components/CurrencyStrengthIndex';
 import { fetchAssets, fetchBulk, refreshCache } from './api';
 import { cn, nextSaturdayUTC } from './utils';
 
@@ -53,6 +53,7 @@ function CountdownLabel() {
 export default function App() {
     const [meta, setMeta] = useState([]);
     const [snapshots, setSnapshots] = useState([]);
+    const [allCurrencies, setAllCurrencies] = useState([]);
     const [scope, setScope] = useState('core');
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -61,6 +62,8 @@ export default function App() {
     const [favorites, setFavorites] = useState(loadFavorites());
     const [showFavOnly, setShowFavOnly] = useState(false);
     const [refreshing, setRefreshing] = useState(false);
+
+    const CURRENCY_IDS = ['EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCAD', 'USDCHF', 'NZDUSD'];
 
     const loadData = async (scopeArg = scope, force = false) => {
         try {
@@ -73,6 +76,10 @@ export default function App() {
             ]);
             setMeta(assetsList);
             setSnapshots(bulk);
+            // Hydrate all-currencies set: union of bulk + scope=all if needed
+            if (scopeArg === 'all') {
+                setAllCurrencies(bulk.filter((s) => CURRENCY_IDS.includes(s.assetId)));
+            }
         } catch (e) {
             console.error(e);
             setError('Errore nel caricamento dati. Riprova fra qualche istante.');
@@ -82,8 +89,20 @@ export default function App() {
         }
     };
 
+    // Always fetch all currencies in background for the Strength Index
+    const loadAllCurrencies = async (force = false) => {
+        try {
+            const data = await fetchBulk('all', force);
+            const ccy = data.filter((s) => CURRENCY_IDS.includes(s.assetId));
+            setAllCurrencies(ccy);
+        } catch (e) {
+            console.warn('currency hydration failed', e);
+        }
+    };
+
     useEffect(() => {
         loadData('core');
+        loadAllCurrencies();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
@@ -146,7 +165,7 @@ export default function App() {
                             <h1 className="font-display text-lg sm:text-xl font-bold text-white tracking-tight">
                                 Speculative <span className="text-amber-400">Alpha</span>
                             </h1>
-                            <p className="text-[10px] tracking-[0.3em] uppercase text-gray-500 font-bold mt-0.5">
+                            <p className="text-[12px] tracking-[0.3em] uppercase text-gray-400 font-semibold mt-0.5">
                                 Institutional COT Intelligence
                             </p>
                         </div>
@@ -154,8 +173,8 @@ export default function App() {
                     <div className="flex items-center gap-2 sm:gap-3">
                         <div className="hidden md:flex flex-col items-end mr-2">
                             <div className="flex items-center gap-2">
-                                <div className="w-1.5 h-1.5 rounded-full bg-amber-400 live-dot" />
-                                <span className="text-[10px] tracking-[0.3em] uppercase font-bold text-white">
+                                <div className="w-2 h-2 rounded-full bg-amber-400 live-dot" />
+                                <span className="text-[12px] tracking-[0.28em] uppercase font-bold text-white">
                                     CFTC LIVE
                                 </span>
                             </div>
@@ -165,17 +184,17 @@ export default function App() {
                             data-testid="refresh-btn"
                             onClick={handleRefresh}
                             disabled={refreshing}
-                            className="p-2 sm:px-3 sm:py-2 rounded-md bg-white/5 hover:bg-amber-500/20 hover:border-amber-500/40 border border-white/10 text-xs font-bold uppercase tracking-wider flex items-center gap-2 transition-colors"
+                            className="p-2.5 sm:px-4 sm:py-2.5 rounded-2xl bg-white/[0.06] hover:bg-amber-500/15 hover:border-amber-500/40 border border-white/10 text-[13px] font-semibold uppercase tracking-[0.18em] flex items-center gap-2 transition-colors"
                         >
-                            <RefreshCw size={14} className={cn(refreshing && 'animate-spin')} />
+                            <RefreshCw size={15} className={cn(refreshing && 'animate-spin')} />
                             <span className="hidden sm:inline">Refresh</span>
                         </button>
                         <button
                             data-testid="help-btn"
                             onClick={() => setShowHelp(true)}
-                            className="p-2 sm:px-3 sm:py-2 rounded-md bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-bold uppercase tracking-wider flex items-center gap-2 transition-colors"
+                            className="p-2.5 sm:px-4 sm:py-2.5 rounded-2xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 text-[13px] font-semibold uppercase tracking-[0.18em] flex items-center gap-2 transition-colors"
                         >
-                            <HelpCircle size={14} />
+                            <HelpCircle size={15} />
                             <span className="hidden sm:inline">Guide</span>
                         </button>
                     </div>
@@ -184,49 +203,49 @@ export default function App() {
 
             <main className="max-w-7xl mx-auto px-6 sm:px-8 py-10 space-y-10 relative z-10">
                 {/* Toolbar */}
-                <div className="flex flex-wrap items-center justify-between gap-4">
+                <div className="flex flex-wrap items-center justify-between gap-5">
                     <div>
-                        <div className="text-[10px] tracking-[0.3em] uppercase font-bold text-amber-400 mb-1">
+                        <div className="text-[12px] tracking-[0.3em] uppercase font-bold text-amber-400 mb-2">
                             Mercati Istituzionali
                         </div>
-                        <h2 className="font-display text-2xl sm:text-3xl font-semibold text-white tracking-tight">
+                        <h2 className="font-display text-3xl sm:text-[34px] font-bold text-white tracking-tight leading-none">
                             Posizionamento Non-Commercial
                         </h2>
                     </div>
                     <div className="flex items-center gap-2">
-                        <div className="bg-black/30 border border-white/8 rounded-md p-1 flex items-center gap-1">
+                        <div className="bg-black/30 border border-white/10 rounded-2xl p-1.5 flex items-center gap-1">
                             <button
                                 data-testid="scope-core"
                                 onClick={() => setScope('core')}
                                 className={cn(
-                                    'px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded transition-colors flex items-center gap-1.5',
-                                    scope === 'core' ? 'bg-amber-500 text-black' : 'text-gray-400 hover:text-white'
+                                    'px-4 py-2 text-[12px] font-semibold uppercase tracking-[0.18em] rounded-xl transition-colors flex items-center gap-2',
+                                    scope === 'core' ? 'bg-amber-500 text-black' : 'text-gray-300 hover:text-white'
                                 )}
                             >
-                                <LayoutGrid size={11} /> Core
+                                <LayoutGrid size={13} /> Core
                             </button>
                             <button
                                 data-testid="scope-all"
                                 onClick={() => setScope('all')}
                                 className={cn(
-                                    'px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded transition-colors flex items-center gap-1.5',
-                                    scope === 'all' ? 'bg-amber-500 text-black' : 'text-gray-400 hover:text-white'
+                                    'px-4 py-2 text-[12px] font-semibold uppercase tracking-[0.18em] rounded-xl transition-colors flex items-center gap-2',
+                                    scope === 'all' ? 'bg-amber-500 text-black' : 'text-gray-300 hover:text-white'
                                 )}
                             >
-                                <Layers size={11} /> All ({meta.length})
+                                <Layers size={13} /> All ({meta.length})
                             </button>
                         </div>
                         <button
                             data-testid="fav-only-toggle"
                             onClick={() => setShowFavOnly((p) => !p)}
                             className={cn(
-                                'px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-md border flex items-center gap-1.5 transition-colors',
+                                'px-4 py-2.5 text-[12px] font-semibold uppercase tracking-[0.18em] rounded-2xl border flex items-center gap-2 transition-colors',
                                 showFavOnly
                                     ? 'bg-amber-500/20 border-amber-500/40 text-amber-300'
-                                    : 'bg-white/5 border-white/10 text-gray-400 hover:text-white'
+                                    : 'bg-white/[0.06] border-white/10 text-gray-300 hover:text-white'
                             )}
                         >
-                            <Star size={11} fill={showFavOnly ? '#fcd34d' : 'transparent'} /> Favorites
+                            <Star size={13} fill={showFavOnly ? '#fcd34d' : 'transparent'} /> Favorites
                         </button>
                     </div>
                 </div>
@@ -235,9 +254,9 @@ export default function App() {
                 {error && (
                     <div
                         data-testid="error-banner"
-                        className="bg-[#f43f5e]/10 border border-[#f43f5e]/30 rounded-lg px-4 py-3 flex items-center gap-3 text-sm"
+                        className="bg-[#f43f5e]/10 border border-[#f43f5e]/30 rounded-2xl px-5 py-4 flex items-center gap-3 text-[14px]"
                     >
-                        <AlertCircle className="text-[#fb7185]" size={16} />
+                        <AlertCircle className="text-[#fb7185]" size={18} />
                         <span className="text-[#fb7185]">{error}</span>
                     </div>
                 )}
@@ -247,11 +266,11 @@ export default function App() {
                     {loading && !snapshots.length ? (
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                             {Array.from({ length: 7 }).map((_, i) => (
-                                <div key={i} className="h-[420px] rounded-xl shimmer border border-white/5" />
+                                <div key={i} className="h-[460px] rounded-[28px] shimmer border border-white/5" />
                             ))}
                         </div>
                     ) : visibleAssets.length === 0 ? (
-                        <div className="text-center py-12 text-gray-500 text-sm">
+                        <div className="text-center py-14 text-gray-400 text-[15px]">
                             {showFavOnly ? 'Nessun asset preferito. Clicca sulla stella per aggiungerne.' : 'Nessun dato disponibile.'}
                         </div>
                     ) : (
@@ -274,17 +293,17 @@ export default function App() {
                                 <div
                                     key={`pending-${m.assetId}`}
                                     data-testid={`asset-card-${m.assetId}-pending`}
-                                    className="h-[420px] rounded-xl shimmer border border-white/5 flex flex-col p-6"
+                                    className="h-[460px] rounded-[28px] shimmer border border-white/5 flex flex-col p-7"
                                 >
-                                    <div className="text-[10px] tracking-[0.3em] uppercase font-bold text-amber-400/60 mb-1">
+                                    <div className="text-[11px] tracking-[0.28em] uppercase font-semibold text-amber-400/60 mb-1">
                                         {m.type}
                                     </div>
-                                    <div className="font-display text-xl font-bold text-white/40">{m.name}</div>
-                                    <div className="text-[10px] uppercase tracking-widest text-gray-700 mt-1 font-mono">
+                                    <div className="font-display text-[20px] font-bold text-white/40">{m.name}</div>
+                                    <div className="text-[12px] uppercase tracking-widest text-gray-600 mt-1.5 font-mono">
                                         {m.assetId}
                                     </div>
-                                    <div className="flex-1 flex items-center justify-center gap-2 text-gray-600 text-[10px] uppercase tracking-widest font-bold">
-                                        <RefreshCw size={12} className="animate-spin text-amber-400/40" />
+                                    <div className="flex-1 flex items-center justify-center gap-2 text-gray-500 text-[12px] uppercase tracking-widest font-semibold">
+                                        <RefreshCw size={14} className="animate-spin text-amber-400/40" />
                                         Sync flussi…
                                     </div>
                                 </div>
@@ -293,19 +312,21 @@ export default function App() {
                     )}
                 </section>
 
+                {/* Currency Strength Index — always uses all currencies in background hydration */}
+                {allCurrencies.length > 0 && (
+                    <CurrencyStrengthIndex assets={allCurrencies} onPick={setActiveId} />
+                )}
+
                 {/* Heatmap */}
                 {snapshots.length > 0 && <HeatmapStrip assets={snapshots} onPick={setActiveId} />}
-
-                {/* Pair compare */}
-                {snapshots.length > 1 && <PairCompare assets={snapshots} />}
 
                 {/* Footer */}
                 <footer className="pt-10 pb-4 border-t border-white/5 flex flex-wrap items-center justify-between gap-4">
                     <div>
-                        <p className="text-[10px] tracking-[0.3em] uppercase font-bold text-gray-600 mb-1">
+                        <p className="text-[12px] tracking-[0.3em] uppercase font-bold text-gray-500 mb-1.5">
                             Data Source · Tradingster (CFTC Legacy Futures)
                         </p>
-                        <p className="text-[11px] text-gray-700">
+                        <p className="text-[13px] text-gray-500">
                             Tutti i dati sono estratti dai report ufficiali CFTC Commitment of Traders.
                             Aggiornamento automatico ogni sabato.
                         </p>
@@ -314,7 +335,7 @@ export default function App() {
                         {['CFTC', 'TRADINGSTER', 'GEMINI AI'].map((t) => (
                             <span
                                 key={t}
-                                className="text-[9px] font-mono font-bold tracking-[0.2em] px-2 py-1 border border-white/8 rounded text-gray-600 uppercase"
+                                className="text-[11px] font-mono font-bold tracking-[0.2em] px-3 py-1.5 border border-white/10 rounded-full text-gray-400 uppercase"
                             >
                                 {t}
                             </span>
