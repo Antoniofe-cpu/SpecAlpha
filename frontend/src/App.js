@@ -113,12 +113,20 @@ export default function App() {
     };
 
     const visibleAssets = useMemo(() => {
-        const ids = snapshots.map((s) => s.assetId);
+        const coreSet = new Set(meta.filter((m) => m.core).map((m) => m.assetId));
         let list = snapshots;
+        if (scope === 'core') list = list.filter((s) => coreSet.has(s.assetId));
         if (showFavOnly) list = list.filter((s) => favorites.includes(s.assetId));
-        // Stable order: keep API order
         return list;
-    }, [snapshots, favorites, showFavOnly]);
+    }, [snapshots, meta, scope, favorites, showFavOnly]);
+
+    // Pending assets for current scope: present in `meta` but not yet in `snapshots`
+    const pendingAssets = useMemo(() => {
+        if (showFavOnly) return [];
+        const visibleMeta = meta.filter((m) => (scope === 'all' ? true : m.core));
+        const have = new Set(snapshots.map((s) => s.assetId));
+        return visibleMeta.filter((m) => !have.has(m.assetId));
+    }, [meta, scope, snapshots, showFavOnly]);
 
     const activeAsset = useMemo(
         () => snapshots.find((s) => s.assetId === activeId) || null,
@@ -261,6 +269,25 @@ export default function App() {
                                     onClick={() => setActiveId(asset.assetId)}
                                     onToggleFav={toggleFav}
                                 />
+                            ))}
+                            {pendingAssets.map((m) => (
+                                <div
+                                    key={`pending-${m.assetId}`}
+                                    data-testid={`asset-card-${m.assetId}-pending`}
+                                    className="h-[420px] rounded-xl shimmer border border-white/5 flex flex-col p-6"
+                                >
+                                    <div className="text-[10px] tracking-[0.3em] uppercase font-bold text-amber-400/60 mb-1">
+                                        {m.type}
+                                    </div>
+                                    <div className="font-display text-xl font-bold text-white/40">{m.name}</div>
+                                    <div className="text-[10px] uppercase tracking-widest text-gray-700 mt-1 font-mono">
+                                        {m.assetId}
+                                    </div>
+                                    <div className="flex-1 flex items-center justify-center gap-2 text-gray-600 text-[10px] uppercase tracking-widest font-bold">
+                                        <RefreshCw size={12} className="animate-spin text-amber-400/40" />
+                                        Sync flussi…
+                                    </div>
+                                </div>
                             ))}
                         </div>
                     )}

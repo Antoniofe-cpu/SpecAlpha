@@ -81,7 +81,7 @@ export default function PairCompare({ assets }) {
                         >
                             {assets.map((x) => (
                                 <option key={x.assetId} value={x.assetId} className="bg-[#0a0a0a]">
-                                    {x.assetId} • {x.name}
+                                    {`${x.assetId} • ${x.name}`}
                                 </option>
                             ))}
                         </select>
@@ -94,7 +94,7 @@ export default function PairCompare({ assets }) {
                         >
                             {assets.map((x) => (
                                 <option key={x.assetId} value={x.assetId} className="bg-[#0a0a0a]">
-                                    {x.assetId} • {x.name}
+                                    {`${x.assetId} • ${x.name}`}
                                 </option>
                             ))}
                         </select>
