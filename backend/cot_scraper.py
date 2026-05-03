@@ -27,7 +27,7 @@ HEADERS = {
 ASSET_MAP: Dict[str, Dict[str, Any]] = {
     "SP500":   {"code": "13874A", "name": "S&P 500 E-Mini", "type": "INDEX",     "core": True},
     "NAS100":  {"code": "209742", "name": "NASDAQ 100",     "type": "INDEX",     "core": True},
-    "DOW":     {"code": "12460P", "name": "Dow Jones",      "type": "INDEX",     "core": False},
+    "DOW":     {"code": "124603", "name": "Dow Jones",      "type": "INDEX",     "core": False},
     "RUSSELL": {"code": "239742", "name": "Russell 2000",   "type": "INDEX",     "core": False},
     "VIX":     {"code": "1170E1", "name": "VIX",            "type": "INDEX",     "core": False},
 
@@ -40,10 +40,10 @@ ASSET_MAP: Dict[str, Dict[str, Any]] = {
     "EURUSD":  {"code": "099741", "name": "Euro (EUR)",     "type": "CURRENCY",  "core": True},
     "GBPUSD":  {"code": "096742", "name": "Sterlina (GBP)", "type": "CURRENCY",  "core": True},
     "USDJPY":  {"code": "097741", "name": "Yen (JPY)",      "type": "CURRENCY",  "core": True},
-    "AUDUSD":  {"code": "232741", "name": "Aussie (AUD)",   "type": "CURRENCY",  "core": False},
-    "USDCAD":  {"code": "090741", "name": "Loonie (CAD)",   "type": "CURRENCY",  "core": False},
-    "USDCHF":  {"code": "092741", "name": "Franco (CHF)",   "type": "CURRENCY",  "core": False},
-    "NZDUSD":  {"code": "112741", "name": "Kiwi (NZD)",     "type": "CURRENCY",  "core": False},
+    "AUDUSD":  {"code": "232741", "name": "Dollaro Australiano", "type": "CURRENCY",  "core": False},
+    "USDCAD":  {"code": "090741", "name": "Dollaro Canadese",    "type": "CURRENCY",  "core": False},
+    "USDCHF":  {"code": "092741", "name": "Franco Svizzero",     "type": "CURRENCY",  "core": False},
+    "NZDUSD":  {"code": "112741", "name": "Dollaro Neozelandese","type": "CURRENCY",  "core": False},
     "BTC":     {"code": "133741", "name": "Bitcoin",        "type": "COMMODITY", "core": False},
 }
 
@@ -269,15 +269,14 @@ async def fetch_cot_history(asset_id: str, limit: int = 60) -> List[Dict[str, An
     short_map = parse_var("dataShort")
 
     all_dates = sorted(set(net_map) | set(long_map) | set(short_map), reverse=True)
-    history: List[Dict[str, Any]] = []
     prev_long = prev_short = None
-    # iterate ASC to compute deltas
     asc_dates = list(reversed(all_dates))
     snapshots: List[Dict[str, Any]] = []
     for d in asc_dates:
         long_val = int(long_map.get(d, {}).get("NonCommercial", 0))
         short_val = int(short_map.get(d, {}).get("NonCommercial", 0))
         net_val = int(net_map.get(d, {}).get("NonCommercial", long_val - short_val))
+        price_val = net_map.get(d, {}).get("close")
         change_long = (long_val - prev_long) if prev_long is not None else 0
         change_short = (short_val - prev_short) if prev_short is not None else 0
         wow = change_long - change_short
@@ -289,7 +288,8 @@ async def fetch_cot_history(asset_id: str, limit: int = 60) -> List[Dict[str, An
             "changeLong": change_long,
             "changeShort": change_short,
             "wowDelta": wow,
+            "price": round(float(price_val), 4) if price_val is not None else None,
         })
         prev_long, prev_short = long_val, short_val
-    snapshots.reverse()  # most recent first
+    snapshots.reverse()
     return snapshots[:limit]

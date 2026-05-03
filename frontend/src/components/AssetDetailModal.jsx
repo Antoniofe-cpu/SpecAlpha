@@ -25,12 +25,33 @@ import {
 import { fetchHistory, fetchOne } from '../api';
 import { cn, formatNumber, formatSigned, getTrendAnalysis, TONE_CLASSES, downloadCSV } from '../utils';
 
+const SERIES = [
+    { key: 'netPosition', label: 'Net', color: '#f59e0b', gradId: 'gNet', yAxis: 'left', fmt: 'k' },
+    { key: 'long',        label: 'Long',color: '#34d399', gradId: 'gLong', yAxis: 'left', fmt: 'k' },
+    { key: 'short',       label: 'Short', color: '#fb7185', gradId: 'gShort', yAxis: 'left', fmt: 'k' },
+    { key: 'price',       label: 'Prezzo', color: '#fcd34d', gradId: 'gPrice', yAxis: 'right', fmt: 'raw' },
+];
+
 export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleFav }) {
     const [history, setHistory] = useState([]);
     const [loading, setLoading] = useState(false);
     const [refreshing, setRefreshing] = useState(false);
     const [windowSize, setWindowSize] = useState(26);
     const [snapshot, setSnapshot] = useState(asset);
+    const [visible, setVisible] = useState({
+        netPosition: true,
+        long: false,
+        short: false,
+        price: true,
+    });
+
+    const toggleSeries = (k) =>
+        setVisible((v) => {
+            const next = { ...v, [k]: !v[k] };
+            // prevent turning all off
+            if (!Object.values(next).some(Boolean)) return v;
+            return next;
+        });
 
     useEffect(() => {
         if (!asset?.assetId) return;
@@ -211,11 +232,11 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                     <div className="flex items-center gap-2">
                                         <BarChart3 size={16} className="text-amber-400" />
                                         <h3 className="font-display text-lg font-bold text-white">
-                                            Net Position — Storico Istituzionale
+                                            Grafico Storico
                                         </h3>
                                     </div>
                                     <p className="text-[12px] tracking-[0.25em] uppercase text-gray-500 mt-1 font-semibold">
-                                        Non-Commercial Speculative Trend
+                                        Net · Long · Short · Prezzo Non-Commercial
                                     </p>
                                 </div>
                                 <div className="flex items-center gap-1 bg-black/30 rounded-2xl border border-white/10 p-1.5">
@@ -236,7 +257,36 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                     ))}
                                 </div>
                             </div>
-                            <div className="h-[340px]">
+
+                            {/* Series toggles */}
+                            <div className="flex flex-wrap items-center gap-2 mb-4">
+                                {SERIES.map((s) => (
+                                    <button
+                                        key={s.key}
+                                        data-testid={`series-toggle-${s.key}`}
+                                        onClick={() => toggleSeries(s.key)}
+                                        className={cn(
+                                            'flex items-center gap-2 px-3 py-1.5 rounded-full border text-[12px] font-semibold tracking-wider transition-colors',
+                                            visible[s.key]
+                                                ? 'bg-white/[0.06] border-white/15 text-white'
+                                                : 'bg-transparent border-white/10 text-gray-500 hover:text-gray-300'
+                                        )}
+                                    >
+                                        <span
+                                            className="w-2.5 h-2.5 rounded-full"
+                                            style={{
+                                                background: visible[s.key] ? s.color : 'transparent',
+                                                borderColor: s.color,
+                                                borderWidth: visible[s.key] ? 0 : 1,
+                                                borderStyle: 'solid',
+                                            }}
+                                        />
+                                        {s.label}
+                                    </button>
+                                ))}
+                            </div>
+
+                            <div className="h-[360px]">
                                 {loading ? (
                                     <div className="h-full flex items-center justify-center text-gray-500 text-[13px]">
                                         <RefreshCw size={18} className="animate-spin mr-2 text-amber-400/60" /> Caricamento serie storica…
@@ -245,10 +295,12 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                     <ResponsiveContainer width="100%" height="100%">
                                         <AreaChart data={chartData} margin={{ top: 10, right: 12, bottom: 0, left: -8 }}>
                                             <defs>
-                                                <linearGradient id="netGrad" x1="0" y1="0" x2="0" y2="1">
-                                                    <stop offset="0%" stopColor="#f59e0b" stopOpacity={0.45} />
-                                                    <stop offset="100%" stopColor="#f59e0b" stopOpacity={0} />
-                                                </linearGradient>
+                                                {SERIES.map((s) => (
+                                                    <linearGradient key={s.gradId} id={s.gradId} x1="0" y1="0" x2="0" y2="1">
+                                                        <stop offset="0%" stopColor={s.color} stopOpacity={0.35} />
+                                                        <stop offset="100%" stopColor={s.color} stopOpacity={0} />
+                                                    </linearGradient>
+                                                ))}
                                             </defs>
                                             <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.04)" />
                                             <XAxis
@@ -258,16 +310,28 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                                 axisLine={false}
                                                 tickLine={false}
                                                 tickFormatter={(v) => v?.slice(5)}
-                                                tick={{ fontFamily: 'JetBrains Mono' }}
+                                                tick={{ fontFamily: 'Geist Mono' }}
                                             />
                                             <YAxis
+                                                yAxisId="left"
                                                 stroke="#6b7280"
                                                 fontSize={11}
                                                 axisLine={false}
                                                 tickLine={false}
                                                 width={60}
-                                                tick={{ fontFamily: 'JetBrains Mono' }}
+                                                tick={{ fontFamily: 'Geist Mono' }}
                                                 tickFormatter={(v) => Math.round(v / 1000) + 'k'}
+                                            />
+                                            <YAxis
+                                                yAxisId="right"
+                                                orientation="right"
+                                                stroke="#fcd34d"
+                                                fontSize={11}
+                                                axisLine={false}
+                                                tickLine={false}
+                                                width={60}
+                                                tick={{ fontFamily: 'Geist Mono' }}
+                                                hide={!visible.price}
                                             />
                                             <Tooltip
                                                 contentStyle={{
@@ -275,20 +339,28 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                                     border: '1px solid rgba(245,158,11,0.4)',
                                                     borderRadius: 12,
                                                     fontSize: 12,
-                                                    fontFamily: 'JetBrains Mono',
+                                                    fontFamily: 'Geist Mono',
                                                 }}
                                                 labelStyle={{ color: '#f59e0b' }}
                                                 itemStyle={{ color: '#fff' }}
-                                                formatter={(v) => formatNumber(v)}
+                                                formatter={(v, k) => (k === 'price' ? String(v) : formatNumber(v))}
                                             />
-                                            <Area
-                                                type="monotone"
-                                                dataKey="netPosition"
-                                                stroke="#f59e0b"
-                                                strokeWidth={2}
-                                                fill="url(#netGrad)"
-                                                style={{ filter: 'drop-shadow(0 0 8px rgba(245,158,11,0.4))' }}
-                                            />
+                                            {SERIES.map((s) =>
+                                                visible[s.key] ? (
+                                                    <Area
+                                                        key={s.key}
+                                                        type="monotone"
+                                                        dataKey={s.key}
+                                                        yAxisId={s.yAxis}
+                                                        name={s.label}
+                                                        stroke={s.color}
+                                                        strokeWidth={2}
+                                                        fill={`url(#${s.gradId})`}
+                                                        connectNulls
+                                                        style={{ filter: `drop-shadow(0 0 6px ${s.color}55)` }}
+                                                    />
+                                                ) : null
+                                            )}
                                         </AreaChart>
                                     </ResponsiveContainer>
                                 ) : (
@@ -319,7 +391,7 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                                     axisLine={false}
                                                     tickLine={false}
                                                     tickFormatter={(v) => v?.slice(5)}
-                                                    tick={{ fontFamily: 'JetBrains Mono' }}
+                                                    tick={{ fontFamily: 'Geist Mono' }}
                                                 />
                                                 <YAxis
                                                     stroke="#6b7280"
@@ -327,7 +399,7 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                                     axisLine={false}
                                                     tickLine={false}
                                                     width={56}
-                                                    tick={{ fontFamily: 'JetBrains Mono' }}
+                                                    tick={{ fontFamily: 'Geist Mono' }}
                                                 />
                                                 <Tooltip
                                                     contentStyle={{
@@ -335,7 +407,7 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                                         border: '1px solid rgba(255,255,255,0.1)',
                                                         borderRadius: 12,
                                                         fontSize: 12,
-                                                        fontFamily: 'JetBrains Mono',
+                                                        fontFamily: 'Geist Mono',
                                                     }}
                                                     formatter={(v) => formatSigned(v)}
                                                 />

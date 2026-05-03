@@ -321,26 +321,14 @@ export default function App() {
                 {snapshots.length > 0 && <HeatmapStrip assets={snapshots} onPick={setActiveId} />}
 
                 {/* Footer */}
-                <footer className="pt-10 pb-4 border-t border-white/5 flex flex-wrap items-center justify-between gap-4">
-                    <div>
-                        <p className="text-[12px] tracking-[0.3em] uppercase font-bold text-gray-500 mb-1.5">
-                            Data Source · Tradingster (CFTC Legacy Futures)
-                        </p>
-                        <p className="text-[13px] text-gray-500">
-                            Tutti i dati sono estratti dai report ufficiali CFTC Commitment of Traders.
-                            Aggiornamento automatico ogni sabato.
-                        </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        {['CFTC', 'TRADINGSTER', 'GEMINI AI'].map((t) => (
-                            <span
-                                key={t}
-                                className="text-[11px] font-mono font-bold tracking-[0.2em] px-3 py-1.5 border border-white/10 rounded-full text-gray-400 uppercase"
-                            >
-                                {t}
-                            </span>
-                        ))}
-                    </div>
+                <footer className="pt-10 pb-4 border-t border-white/5">
+                    <p className="text-[12px] tracking-[0.3em] uppercase font-bold text-gray-500 mb-1.5">
+                        Data Source · Tradingster (CFTC Legacy Futures)
+                    </p>
+                    <p className="text-[13px] text-gray-500">
+                        Tutti i dati sono estratti dai report ufficiali CFTC Commitment of Traders.
+                        Aggiornamento automatico ogni sabato.
+                    </p>
                 </footer>
             </main>
 

@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo } from 'react';
 import { motion } from 'framer-motion';
 import {
     Compass,
@@ -7,8 +7,6 @@ import {
     Zap,
     ArrowRight,
     AlertTriangle,
-    Scale,
-    ArrowLeftRight,
 } from 'lucide-react';
 import { cn, formatNumber, formatSigned } from '../utils';
 
@@ -178,52 +176,6 @@ export default function CurrencyStrengthIndex({ assets, onPick }) {
         }
         return `${sName} è la valuta più forte secondo i flussi Non-Commercial (Net ${sNet}); ${wName} è la più debole (Net ${wNet}). Dominanza relativa ${dominance}. ${momentum}`;
     }, [strongest, weakest, maxAbs]);
-
-    // ---- Confronto Diretto (integrated, currencies only) ----
-    const [pickAId, setPickAId] = useState(null);
-    const [pickBId, setPickBId] = useState(null);
-
-    useEffect(() => {
-        if (!ranked.length) return;
-        if (!pickAId) setPickAId(ranked[0]?.assetId);
-        if (!pickBId) setPickBId(ranked[ranked.length - 1]?.assetId);
-    }, [ranked, pickAId, pickBId]);
-
-    const pickA = useMemo(() => ranked.find((x) => x.assetId === pickAId), [ranked, pickAId]);
-    const pickB = useMemo(() => ranked.find((x) => x.assetId === pickBId), [ranked, pickBId]);
-
-    const compareAnalysis = useMemo(() => {
-        if (!pickA || !pickB) return null;
-        const sA = pickA._score;
-        const sB = pickB._score;
-        const diff = sA - sB;
-        const absDiff = Math.abs(diff);
-        const tone = absDiff < 0.3 ? 'neutral' : diff > 0 ? 'bullish' : 'bearish';
-        const winner = diff > 0 ? pickA : pickB;
-        const loser = diff > 0 ? pickB : pickA;
-        const pair = suggestPair(winner.code, loser.code);
-        let title, body, hint;
-        if (tone === 'neutral') {
-            title = `Equilibrio fra ${pickA.code} e ${pickB.code}`;
-            body = `I flussi istituzionali sono speculari (score Δ ${absDiff.toFixed(2)}). Non emerge un edge direzionale chiaro.`;
-            hint = 'Strategia: attendere break tecnico o nuovo report COT prima di operare.';
-        } else {
-            const winMomentum = (winner.wowDelta || 0) >= 0 ? 'in accumulazione' : 'in distribuzione';
-            const losMomentum = (loser.wowDelta || 0) >= 0 ? 'in accumulazione' : 'in distribuzione';
-            title = `${winner.code} domina su ${loser.code}`;
-            body = `${winner.code} è ${winMomentum} (Δ ${formatSigned(winner.wowDelta)}, Net ${formatSigned(winner.netPosition)}), mentre ${loser.code} è ${losMomentum} (Δ ${formatSigned(loser.wowDelta)}, Net ${formatSigned(loser.netPosition)}).`;
-            hint = pair
-                ? `Bias istituzionale: ${pair.side} ${pair.pair} · score gap ${absDiff.toFixed(2)}.`
-                : `Edge sulla forza relativa di ${winner.code} su ${loser.code}.`;
-        }
-        return { tone, title, body, hint, pair };
-    }, [pickA, pickB]);
-
-    const compareToneClass = {
-        bullish: 'border-[#10b981]/30 bg-[#10b981]/[0.06]',
-        bearish: 'border-[#f43f5e]/30 bg-[#f43f5e]/[0.06]',
-        neutral: 'border-white/10 bg-white/[0.02]',
-    };
 
     if (!ranked.length) return null;
 
@@ -453,7 +405,7 @@ export default function CurrencyStrengthIndex({ assets, onPick }) {
 
             {/* Trend Alerts */}
             {trendAlerts.length > 0 && (
-                <div className="mb-10">
+                <div>
                     <div className="flex items-center gap-2 mb-4">
                         <AlertTriangle className="text-amber-400" size={18} />
                         <h3 className="font-display text-xl font-bold text-white">
@@ -503,104 +455,6 @@ export default function CurrencyStrengthIndex({ assets, onPick }) {
                     </div>
                 </div>
             )}
-
-            {/* Confronto Diretto integrato (solo valute) */}
-            <div data-testid="forex-pair-compare">
-                <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-                    <div className="flex items-center gap-2">
-                        <Scale className="text-amber-400" size={18} />
-                        <h3 className="font-display text-xl font-bold text-white">
-                            Confronto Diretto Valute
-                        </h3>
-                    </div>
-                    <div className="flex items-center gap-2 bg-black/30 border border-white/10 p-1.5 rounded-2xl">
-                        <select
-                            data-testid="pair-asset-a"
-                            value={pickAId || ''}
-                            onChange={(e) => setPickAId(e.target.value)}
-                            className="bg-transparent text-white font-mono text-[13px] font-semibold px-3 py-2 outline-none cursor-pointer rounded-xl hover:bg-white/5"
-                        >
-                            {ranked.map((x) => (
-                                <option key={x.assetId} value={x.assetId} className="bg-[#0a0a0d]">
-                                    {`${x.code} · ${x.ccyName}`}
-                                </option>
-                            ))}
-                        </select>
-                        <span className="text-gray-500 text-[12px] font-bold tracking-widest">VS</span>
-                        <select
-                            data-testid="pair-asset-b"
-                            value={pickBId || ''}
-                            onChange={(e) => setPickBId(e.target.value)}
-                            className="bg-transparent text-white font-mono text-[13px] font-semibold px-3 py-2 outline-none cursor-pointer rounded-xl hover:bg-white/5"
-                        >
-                            {ranked.map((x) => (
-                                <option key={x.assetId} value={x.assetId} className="bg-[#0a0a0d]">
-                                    {`${x.code} · ${x.ccyName}`}
-                                </option>
-                            ))}
-                        </select>
-                    </div>
-                </div>
-
-                {pickA && pickB && compareAnalysis && (
-                    <div className={cn('rounded-[28px] border p-7', compareToneClass[compareAnalysis.tone])}>
-                        <div className="flex items-start gap-4 mb-6">
-                            <div className="w-12 h-12 rounded-2xl border border-white/10 bg-black/30 flex items-center justify-center shrink-0 text-amber-400">
-                                <ArrowLeftRight size={20} />
-                            </div>
-                            <div className="flex-1">
-                                <h4 className="font-display text-xl font-bold text-white mb-2">
-                                    {compareAnalysis.title}
-                                </h4>
-                                <p className="text-[15px] leading-relaxed text-gray-300 mb-2">{compareAnalysis.body}</p>
-                                <p className="text-[13.5px] leading-relaxed text-amber-300/80 italic">
-                                    {compareAnalysis.hint}
-                                </p>
-                            </div>
-                        </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-5 border-t border-white/5">
-                            {[pickA, pickB].map((x, i) => (
-                                <div
-                                    key={i}
-                                    className="bg-black/25 rounded-2xl p-4 border border-white/[0.05]"
-                                >
-                                    <div className="flex items-center justify-between mb-3">
-                                        <span className="font-display text-[16px] font-bold text-white">
-                                            {x.code}
-                                        </span>
-                                        <span className="text-[11px] text-gray-500 font-mono">{x.ccyName}</span>
-                                    </div>
-                                    <div className="font-mono text-[26px] font-semibold text-white tnum mb-2">
-                                        {formatNumber(x.netPosition)}
-                                    </div>
-                                    <div className="grid grid-cols-3 gap-2 text-[12px]">
-                                        <div>
-                                            <div className="text-gray-500 uppercase tracking-widest font-semibold text-[10.5px]">
-                                                Δ WoW
-                                            </div>
-                                            <div className={cn('font-mono font-semibold tnum', (x.wowDelta || 0) >= 0 ? 'text-[#34d399]' : 'text-[#fb7185]')}>
-                                                {formatSigned(x.wowDelta)}
-                                            </div>
-                                        </div>
-                                        <div>
-                                            <div className="text-gray-500 uppercase tracking-widest font-semibold text-[10.5px]">
-                                                Long
-                                            </div>
-                                            <div className="font-mono text-[#34d399] tnum">{formatNumber(x.long)}</div>
-                                        </div>
-                                        <div>
-                                            <div className="text-gray-500 uppercase tracking-widest font-semibold text-[10.5px]">
-                                                Short
-                                            </div>
-                                            <div className="font-mono text-[#fb7185] tnum">{formatNumber(x.short)}</div>
-                                        </div>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                )}
-            </div>
         </section>
     );
 }

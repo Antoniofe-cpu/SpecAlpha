@@ -24,6 +24,11 @@ const sections = [
             "L'Open Interest è il totale dei contratti aperti sul mercato. L'OI Share Non-Commercial è la percentuale di Open Interest controllata dai grandi speculatori (Long + Short). Sopra 50% = mercato dominato dagli speculativi: i trend possono essere più direzionali ma più vulnerabili a unwinding forzati. Sotto 30% = mercato guidato dagli operatori commerciali (hedger), trend più lenti e strutturali.",
     },
     {
+        title: 'Intensity Index (0-100)',
+        body:
+            "L'Intensity Index è una misura sintetica della convinzione direzionale degli Non-Commercial, ottenuta normalizzando la Net Position sul totale delle posizioni speculative. 50 = posizionamento neutro (long ≈ short); valori > 70 = forte bias rialzista istituzionale; valori < 30 = forte bias ribassista. Valori estremi (> 85 o < 15) segnalano crowded trade: attenzione a unwinding o squeeze.",
+    },
+    {
         title: 'Forex Strength Index',
         body:
             "Confronta la forza assoluta di tutte le valute vs USD basandosi sui flussi Non-Commercial. Identifica automaticamente: la valuta più forte, la più debole, le opportunità su pair forex (es. EUR forte + JPY debole → EURJPY long) e i trend assoluti dove momentum e posizionamento si confermano.",
