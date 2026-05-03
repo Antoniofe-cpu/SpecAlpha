@@ -58,13 +58,13 @@ function LangToggle() {
     return (
         <div
             data-testid="lang-toggle"
-            className="flex items-center bg-black/30 border border-white/10 rounded-2xl p-1"
+            className="fixed bottom-4 right-4 z-[105] flex items-center bg-[#0a0a0d]/95 border border-white/10 rounded-2xl p-1 shadow-[0_8px_28px_rgba(0,0,0,0.6)] backdrop-blur-xl"
         >
             <button
                 data-testid="lang-it"
                 onClick={() => setLang('it')}
                 className={cn(
-                    'px-2.5 py-1.5 text-[11px] font-mono font-bold uppercase tracking-[0.2em] rounded-xl transition-colors flex items-center gap-1.5',
+                    'px-3 py-1.5 text-[11px] font-mono font-bold uppercase tracking-[0.22em] rounded-xl transition-colors flex items-center gap-1.5',
                     lang === 'it' ? 'bg-amber-500 text-black' : 'text-gray-400 hover:text-white'
                 )}
                 aria-label="Italiano"
@@ -76,7 +76,7 @@ function LangToggle() {
                 data-testid="lang-en"
                 onClick={() => setLang('en')}
                 className={cn(
-                    'px-2.5 py-1.5 text-[11px] font-mono font-bold uppercase tracking-[0.2em] rounded-xl transition-colors flex items-center gap-1.5',
+                    'px-3 py-1.5 text-[11px] font-mono font-bold uppercase tracking-[0.22em] rounded-xl transition-colors flex items-center gap-1.5',
                     lang === 'en' ? 'bg-amber-500 text-black' : 'text-gray-400 hover:text-white'
                 )}
                 aria-label="English"
@@ -219,7 +219,6 @@ export default function App() {
                             </div>
                             <CountdownLabel />
                         </div>
-                        <LangToggle />
                         <button
                             data-testid="refresh-btn"
                             onClick={handleRefresh}
@@ -381,6 +380,7 @@ export default function App() {
                 />
             )}
             <HelpModal open={showHelp} onClose={() => setShowHelp(false)} />
+            <LangToggle />
         </div>
     );
 }

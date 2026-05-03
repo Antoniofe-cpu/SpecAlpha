@@ -9,16 +9,17 @@ import {
     AlertTriangle,
 } from 'lucide-react';
 import { cn, formatNumber, formatSigned } from '../utils';
+import { useT } from '../i18n';
 
 // Map currency assetId -> display data. NO emoji/flags.
-const CURRENCY_LABELS = {
-    EURUSD: { code: 'EUR', name: 'Euro' },
-    GBPUSD: { code: 'GBP', name: 'Sterlina' },
-    USDJPY: { code: 'JPY', name: 'Yen Giapponese' },
-    AUDUSD: { code: 'AUD', name: 'Dollaro Australiano' },
-    USDCAD: { code: 'CAD', name: 'Dollaro Canadese' },
-    USDCHF: { code: 'CHF', name: 'Franco Svizzero' },
-    NZDUSD: { code: 'NZD', name: 'Dollaro Neozelandese' },
+const CURRENCY_CODES = {
+    EURUSD: 'EUR',
+    GBPUSD: 'GBP',
+    USDJPY: 'JPY',
+    AUDUSD: 'AUD',
+    USDCAD: 'CAD',
+    USDCHF: 'CHF',
+    NZDUSD: 'NZD',
 };
 
 const PAIR_MAP = {
@@ -56,17 +57,18 @@ function momentumSignificance(c) {
 }
 
 export default function CurrencyStrengthIndex({ assets, onPick }) {
-    // Filter only currencies present in CURRENCY_LABELS
+    const { t } = useT();
+    // Filter only currencies present in CURRENCY_CODES
     const currencies = useMemo(
         () =>
             assets
-                .filter((a) => CURRENCY_LABELS[a.assetId])
+                .filter((a) => CURRENCY_CODES[a.assetId])
                 .map((a) => ({
                     ...a,
-                    code: CURRENCY_LABELS[a.assetId].code,
-                    ccyName: CURRENCY_LABELS[a.assetId].name,
+                    code: CURRENCY_CODES[a.assetId],
+                    ccyName: t(`fx.ccy.${CURRENCY_CODES[a.assetId]}`),
                 })),
-        [assets]
+        [assets, t]
     );
 
     // USD synthetic strength: opposite of average currency net (net long currencies => USD weak)
@@ -80,14 +82,14 @@ export default function CurrencyStrengthIndex({ assets, onPick }) {
         return {
             assetId: 'USD',
             code: 'USD',
-            ccyName: 'Dollaro USA (sintetico)',
+            ccyName: t('fx.ccy.USD'),
             netPosition: -Math.round(avgNet),
             wowDelta: -Math.round(avgDelta),
             long: Math.round(longSyn),
             short: Math.round(shortSyn),
             synthetic: true,
         };
-    }, [currencies]);
+    }, [currencies, t]);
 
     const ranked = useMemo(() => {
         const list = usdSynth ? [...currencies, usdSynth] : [...currencies];
@@ -165,17 +167,21 @@ export default function CurrencyStrengthIndex({ assets, onPick }) {
         const wNet = formatSigned(weakest.netPosition);
         const spread = Math.abs((strongest.netPosition || 0) - (weakest.netPosition || 0));
         const dominance =
-            spread > maxAbs * 1.6 ? 'estrema' : spread > maxAbs * 0.9 ? 'forte' : 'moderata';
+            spread > maxAbs * 1.6
+                ? t('fx.dominance.extreme')
+                : spread > maxAbs * 0.9
+                    ? t('fx.dominance.strong')
+                    : t('fx.dominance.moderate');
         let momentum;
         if ((strongest.wowDelta || 0) > 0 && (weakest.wowDelta || 0) < 0) {
-            momentum = `Momentum settimanale conferma la divergenza: ${sName} continua ad accumulare flussi long, ${wName} viene ulteriormente venduto.`;
+            momentum = t('fx.narrative.aligned', sName, wName);
         } else if ((strongest.wowDelta || 0) < 0 && (weakest.wowDelta || 0) > 0) {
-            momentum = `Attenzione: il momentum è in inversione (${sName} perde flussi, ${wName} viene ricoperto). Possibile rotazione in atto.`;
+            momentum = t('fx.narrative.reversing', sName, wName);
         } else {
-            momentum = `Momentum misto: monitorare il prossimo report COT per conferme prima di operare.`;
+            momentum = t('fx.narrative.mixed');
         }
-        return `${sName} è la valuta più forte secondo i flussi Non-Commercial (Net ${sNet}); ${wName} è la più debole (Net ${wNet}). Dominanza relativa ${dominance}. ${momentum}`;
-    }, [strongest, weakest, maxAbs]);
+        return t('fx.narrative.summary', sName, sNet, wName, wNet, dominance, momentum);
+    }, [strongest, weakest, maxAbs, t]);
 
     if (!ranked.length) return null;
 
@@ -193,15 +199,13 @@ export default function CurrencyStrengthIndex({ assets, onPick }) {
                     </div>
                     <div>
                         <div className="text-[12px] tracking-[0.3em] uppercase font-bold text-amber-400 mb-1">
-                            Forex Strength Index
+                            {t('fx.kicker')}
                         </div>
                         <h2 className="font-display text-2xl sm:text-[28px] font-bold text-white">
-                            Forza Assoluta delle Valute
+                            {t('fx.title')}
                         </h2>
                         <p className="text-[14px] text-gray-400 mt-2 max-w-2xl leading-relaxed">
-                            Posizionamento Net Non-Commercial di ogni valuta vs USD. Ranking
-                            dal più forte al più debole, con tutte le opportunità di pair forex
-                            con divergenza significativa o momentum settimanale &gt; 50%.
+                            {t('fx.body')}
                         </p>
                     </div>
                 </div>
@@ -216,7 +220,7 @@ export default function CurrencyStrengthIndex({ assets, onPick }) {
                         </div>
                         <div className="flex-1 min-w-0">
                             <div className="text-[11px] tracking-[0.25em] uppercase font-semibold text-[#34d399] mb-1">
-                                Valuta più forte
+                                {t('fx.strongest')}
                             </div>
                             <div className="font-display text-2xl font-bold text-white truncate">
                                 {strongest.code}
@@ -241,7 +245,7 @@ export default function CurrencyStrengthIndex({ assets, onPick }) {
                         </div>
                         <div className="flex-1 min-w-0">
                             <div className="text-[11px] tracking-[0.25em] uppercase font-semibold text-[#fb7185] mb-1">
-                                Valuta più debole
+                                {t('fx.weakest')}
                             </div>
                             <div className="font-display text-2xl font-bold text-white truncate">
                                 {weakest.code}
@@ -265,7 +269,7 @@ export default function CurrencyStrengthIndex({ assets, onPick }) {
                 <div className="flex items-center gap-2 mb-2">
                     <Zap className="text-amber-400" size={15} />
                     <span className="text-[12px] tracking-[0.25em] uppercase font-semibold text-amber-300">
-                        Analisi Macro
+                        {t('fx.macro')}
                     </span>
                 </div>
                 <p className="text-[15px] leading-relaxed text-gray-200">{narrative}</p>
@@ -301,7 +305,7 @@ export default function CurrencyStrengthIndex({ assets, onPick }) {
                                     <span>{c.code}</span>
                                     {c.synthetic && (
                                         <span className="text-[10px] text-amber-400/80 font-normal tracking-widest uppercase">
-                                            Synth
+                                            {t('fx.synth')}
                                         </span>
                                     )}
                                 </div>
@@ -343,57 +347,57 @@ export default function CurrencyStrengthIndex({ assets, onPick }) {
                     <div className="flex items-center gap-2 mb-4">
                         <ArrowRight className="text-amber-400" size={18} />
                         <h3 className="font-display text-xl font-bold text-white">
-                            Opportunità Pair Forex (Divergenze + Momentum)
+                            {t('fx.opportunities')}
                         </h3>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                        {tradeIdeas.map((t, i) => (
+                        {tradeIdeas.map((idea, i) => (
                             <div
-                                data-testid={`trade-idea-${t.pair}`}
-                                key={t.pair}
+                                data-testid={`trade-idea-${idea.pair}`}
+                                key={idea.pair}
                                 className="bg-[#0e0e14] border border-white/[0.07] rounded-3xl p-5 hover:border-amber-500/30 transition-colors"
                             >
                                 <div className="flex items-center justify-between mb-3">
                                     <span
                                         className={cn(
                                             'inline-flex items-center px-3 py-1 rounded-full text-[11px] font-bold tracking-[0.2em] uppercase',
-                                            t.side === 'LONG'
+                                            idea.side === 'LONG'
                                                 ? 'bg-[#10b981]/15 text-[#34d399] border border-[#10b981]/30'
                                                 : 'bg-[#f43f5e]/15 text-[#fb7185] border border-[#f43f5e]/30'
                                         )}
                                     >
-                                        {t.side}
+                                        {idea.side}
                                     </span>
                                     <span className="text-[11px] uppercase tracking-[0.18em] text-gray-500 font-semibold">
-                                        Idea #{i + 1}
+                                        {t('fx.idea')} #{i + 1}
                                     </span>
                                 </div>
                                 <div className="font-display text-[26px] font-bold text-white tracking-tight mb-2">
-                                    {t.pair}
+                                    {idea.pair}
                                 </div>
                                 <p className="text-[13.5px] leading-relaxed text-gray-300">
-                                    <strong className="text-[#34d399]">{t.strong.code}</strong>{' '}
-                                    {t.strong.netPosition >= 0 ? 'long' : 'short'} (Net{' '}
-                                    {formatSigned(t.strong.netPosition)}, Δ {formatSigned(t.strong.wowDelta)}){' '}
-                                    vs <strong className="text-[#fb7185]">{t.weak.code}</strong>{' '}
-                                    {t.weak.netPosition >= 0 ? 'long' : 'short'} (Net{' '}
-                                    {formatSigned(t.weak.netPosition)}, Δ {formatSigned(t.weak.wowDelta)}).
+                                    <strong className="text-[#34d399]">{idea.strong.code}</strong>{' '}
+                                    {idea.strong.netPosition >= 0 ? 'long' : 'short'} (Net{' '}
+                                    {formatSigned(idea.strong.netPosition)}, Δ {formatSigned(idea.strong.wowDelta)}){' '}
+                                    vs <strong className="text-[#fb7185]">{idea.weak.code}</strong>{' '}
+                                    {idea.weak.netPosition >= 0 ? 'long' : 'short'} (Net{' '}
+                                    {formatSigned(idea.weak.netPosition)}, Δ {formatSigned(idea.weak.wowDelta)}).
                                 </p>
                                 <div className="mt-3 grid grid-cols-2 gap-2 text-[11.5px]">
                                     <div className="bg-black/30 border border-white/5 rounded-xl px-3 py-2">
                                         <div className="text-gray-500 uppercase tracking-widest font-semibold text-[10px] mb-0.5">
-                                            Score gap
+                                            {t('fx.score_gap')}
                                         </div>
                                         <div className="font-mono text-amber-300 font-semibold tnum">
-                                            {t.scoreGap.toFixed(2)}
+                                            {idea.scoreGap.toFixed(2)}
                                         </div>
                                     </div>
                                     <div className="bg-black/30 border border-white/5 rounded-xl px-3 py-2">
                                         <div className="text-gray-500 uppercase tracking-widest font-semibold text-[10px] mb-0.5">
-                                            Momentum
+                                            {t('fx.momentum')}
                                         </div>
                                         <div className="font-mono text-amber-300 font-semibold tnum">
-                                            {(t.momentum * 100).toFixed(0)}%
+                                            {(idea.momentum * 100).toFixed(0)}%
                                         </div>
                                     </div>
                                 </div>
@@ -409,7 +413,7 @@ export default function CurrencyStrengthIndex({ assets, onPick }) {
                     <div className="flex items-center gap-2 mb-4">
                         <AlertTriangle className="text-amber-400" size={18} />
                         <h3 className="font-display text-xl font-bold text-white">
-                            Trend Assoluti Rilevanti
+                            {t('fx.trends')}
                         </h3>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
@@ -446,8 +450,8 @@ export default function CurrencyStrengthIndex({ assets, onPick }) {
                                     </div>
                                     <div className="text-[12.5px] text-gray-400 leading-snug">
                                         {c.aligned
-                                            ? `Trend ${positive ? 'long' : 'short'} confermato dal momentum WoW.`
-                                            : 'Possibile inversione: posizione assoluta forte ma momentum opposto.'}
+                                            ? t('fx.aligned', positive)
+                                            : t('fx.unaligned')}
                                     </div>
                                 </div>
                             );

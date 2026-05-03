@@ -41,10 +41,24 @@
 - Backend tests: 12/12 PASS
 - Frontend: 95% (only cold-cache transient banner; resolved on subsequent loads)
 
-## Latest Session (Feb 2026)
-- **P0 ✅** Retroactive verdict generation: Fixed broken `_backfill_verdicts` in `server.py` (NameError caused by stray duplicated code). Endpoint `/api/verdict/{asset}/performance` now auto-backfills 20 synthetic rule-based verdicts on first open → equity curve populated immediately.
-- **P1 ✅** PDF Snapshot Export: Replaced CSV with `html2canvas + jspdf` capture of full expanded modal (auto-opens performance panel). New `modal-export-btn` shows "PDF". Multi-page A4 portrait.
-- **P2 ✅** UI polish: Removed `modal-refresh-btn` from `AssetDetailModal`. Removed "CFTC ·" prefix from main header (only date + countdown remain).
+## Latest Session (Feb 2026) — Round 2
+- **Performance overhaul**:
+  - Logica trading aggiornata: entry = lunedì close, risk window = lun→ven, **MFE/MAE** sui min/max settimanali (non più exit fisso al venerdì close).
+  - Metriche: **R = MFE/MAE** (cap 10R), **Net R = R−1**, win se Net R>0, loss se <0.
+  - Backfill esteso a **50 verdetti** sintetici (era 20).
+  - Frontend mostra "R cumulativo" e "Net R cumulativo" + curva R + tabella ultimi 10 con colonne MFE/MAE/R/Net R.
+  - Disclaimer sintetico aggiornato.
+- **i18n IT/EN 360°**:
+  - Provider in `src/i18n.js` con dizionari completi per tutti i componenti utente (App, AssetCard, AssetDetailModal, HelpModal, HeatmapStrip, CurrencyStrengthIndex).
+  - **Auto-detect** lingua browser via `navigator.languages` (default EN se non rilevato; IT se locale italiano); persistenza in localStorage.
+  - Toggle IT/EN floating in **basso a destra** con z-index alto.
+  - Termini finanziari standard (Long/Short/Net/Δ WoW/MFE/MAE/R/Win Rate/OI Share/Equity/Bullish/Bearish) preservati identici in entrambe le lingue.
+- **PDF reale strutturato**: rimosso `html2canvas`. Ora usa `jsPDF` + `jspdf-autotable` per generare un PDF nativo con sezioni testo+tabelle: Snapshot, Macro, Verdict, History (8 righe), Performance R (con dettaglio per-trade). Footer paginato. Lingua del PDF segue la lingua app.
+
+## Latest Session (Feb 2026) — Round 1
+- **P0 ✅** Retroactive verdict generation: Fixed broken `_backfill_verdicts` in `server.py` (NameError caused by stray duplicated code).
+- **P1 ✅** PDF Snapshot Export (round 1, ora sostituito da PDF reale).
+- **P2 ✅** UI polish: rimosso `modal-refresh-btn`; rimosso "CFTC ·" dall'header.
 
 ## Backlog / Future
 - P1: Backend background warm-cache at startup to eliminate cold-cache flash

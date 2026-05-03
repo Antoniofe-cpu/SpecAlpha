@@ -2,6 +2,24 @@ import React, { createContext, useContext, useEffect, useState, useCallback } fr
 
 const STORAGE_KEY = 'spec-alpha-lang';
 
+function detectLang() {
+    try {
+        const stored = localStorage.getItem(STORAGE_KEY);
+        if (stored === 'it' || stored === 'en') return stored;
+    } catch {}
+    try {
+        const langs = (navigator.languages && navigator.languages.length
+            ? navigator.languages
+            : [navigator.language || 'en']);
+        for (const l of langs) {
+            const code = String(l || '').toLowerCase();
+            if (code.startsWith('it')) return 'it';
+            if (code.startsWith('en')) return 'en';
+        }
+    } catch {}
+    return 'en';
+}
+
 // Dizionari. Le chiavi finanziarie comuni (Long, Short, Net Position, Δ WoW, OI Share,
 // Equity, Win Rate, Cumulative P/L, Refresh, Bullish, Bearish, ecc.) restano identiche
 // in entrambe le lingue perché sono termini standard del trading.
@@ -169,6 +187,48 @@ const STR = {
         'trend.accumulation': 'ACCUMULAZIONE',
         'trend.distribution': 'DISTRIBUZIONE',
         'trend.neutral': 'NEUTRAL',
+
+        // Performance — R-multiple based metrics
+        'modal.perf.r_cumulative': 'R cumulativo',
+        'modal.perf.r_net_cumulative': 'Net R cumulativo',
+        'modal.perf.col.entry_price': 'Entry',
+        'modal.perf.col.week_min': 'Week Low',
+        'modal.perf.col.week_max': 'Week High',
+        'modal.perf.col.mfe': 'MFE',
+        'modal.perf.col.mae': 'MAE',
+        'modal.perf.col.r': 'R',
+        'modal.perf.col.net_r': 'Net R',
+        'modal.perf.equity_label_r': (n) => `R Curve · ultimi ${n} verdetti valutati`,
+        'modal.perf.last_n': (n) => `Ultimi ${n} verdetti`,
+        'modal.perf_logic_r':
+            'Logica: entry = close di lunedì · risk window = lunedì → venerdì · MFE = max favorable excursion · MAE = max adverse excursion · R = MFE/MAE · Net R = R − 1.',
+        'modal.perf_synth_note_r':
+            'Nota: i verdetti sono ricostruiti da una regola sintetica deterministica (segui il Δ WoW). Le metriche R sono calcolate sui min/max settimanali (non su entry/exit fissi), quindi premiano i setup che hanno respirato più a favore che contro nei 5 giorni successivi al report. La logica live (AI + macro + price action) tende a essere più affidabile dei backfill puramente meccanici.',
+
+        // PDF
+        'pdf.title': 'Speculative Alpha · COT Report',
+        'pdf.generated': 'Generato',
+        'pdf.section.summary': 'Snapshot Posizionamento',
+        'pdf.section.macro': 'Macro Sentiment',
+        'pdf.section.verdict': 'Final Verdict',
+        'pdf.section.history': 'Storico COT (ultimi 8 report)',
+        'pdf.section.performance': 'Performance Verdetti (R-multiple)',
+        'pdf.field.report_date': 'Report Date',
+        'pdf.field.type': 'Tipo',
+        'pdf.field.signal': 'Sentiment',
+        'pdf.field.confidence': 'Confidence',
+        'pdf.field.summary': 'Sintesi',
+        'pdf.field.entry': 'Entry',
+        'pdf.field.events_count': 'N. eventi',
+        'pdf.stats.total': 'Total',
+        'pdf.stats.evaluated': 'Valutati',
+        'pdf.stats.wins': 'Win',
+        'pdf.stats.losses': 'Loss',
+        'pdf.stats.winrate': 'Win rate',
+        'pdf.stats.cum_r': 'R cumulativo',
+        'pdf.stats.cum_net_r': 'Net R cumulativo',
+        'pdf.footer': 'Sorgenti: CFTC (Tradingster) · TradingEconomics · Yahoo Finance · Gemini AI',
+        'pdf.no_data': 'Dati non disponibili.',
     },
     en: {
         'app.tagline': 'Institutional COT Intelligence',
@@ -326,6 +386,48 @@ const STR = {
         'trend.accumulation': 'ACCUMULATION',
         'trend.distribution': 'DISTRIBUTION',
         'trend.neutral': 'NEUTRAL',
+
+        // Performance — R-multiple based metrics
+        'modal.perf.r_cumulative': 'Cumulative R',
+        'modal.perf.r_net_cumulative': 'Cumulative Net R',
+        'modal.perf.col.entry_price': 'Entry',
+        'modal.perf.col.week_min': 'Week Low',
+        'modal.perf.col.week_max': 'Week High',
+        'modal.perf.col.mfe': 'MFE',
+        'modal.perf.col.mae': 'MAE',
+        'modal.perf.col.r': 'R',
+        'modal.perf.col.net_r': 'Net R',
+        'modal.perf.equity_label_r': (n) => `R Curve · last ${n} evaluated verdicts`,
+        'modal.perf.last_n': (n) => `Last ${n} verdicts`,
+        'modal.perf_logic_r':
+            'Logic: entry = Monday close · risk window = Monday → Friday · MFE = max favorable excursion · MAE = max adverse excursion · R = MFE/MAE · Net R = R − 1.',
+        'modal.perf_synth_note_r':
+            'Note: backfilled verdicts come from a deterministic synthetic rule (follow Δ WoW). R metrics are computed on weekly min/max excursions (not fixed entry/exit), rewarding setups that breathed more in favour than against during the 5 days following the report. The live logic (AI + macro + price action) tends to be more reliable than purely mechanical backfills.',
+
+        // PDF
+        'pdf.title': 'Speculative Alpha · COT Report',
+        'pdf.generated': 'Generated',
+        'pdf.section.summary': 'Positioning Snapshot',
+        'pdf.section.macro': 'Macro Sentiment',
+        'pdf.section.verdict': 'Final Verdict',
+        'pdf.section.history': 'COT History (last 8 reports)',
+        'pdf.section.performance': 'Verdict Performance (R-multiple)',
+        'pdf.field.report_date': 'Report Date',
+        'pdf.field.type': 'Type',
+        'pdf.field.signal': 'Sentiment',
+        'pdf.field.confidence': 'Confidence',
+        'pdf.field.summary': 'Summary',
+        'pdf.field.entry': 'Entry',
+        'pdf.field.events_count': 'Events',
+        'pdf.stats.total': 'Total',
+        'pdf.stats.evaluated': 'Evaluated',
+        'pdf.stats.wins': 'Win',
+        'pdf.stats.losses': 'Loss',
+        'pdf.stats.winrate': 'Win rate',
+        'pdf.stats.cum_r': 'Cumulative R',
+        'pdf.stats.cum_net_r': 'Cumulative Net R',
+        'pdf.footer': 'Sources: CFTC (Tradingster) · TradingEconomics · Yahoo Finance · Gemini AI',
+        'pdf.no_data': 'Data unavailable.',
     },
 };
 
@@ -336,13 +438,7 @@ const LangCtx = createContext({
 });
 
 export function LangProvider({ children }) {
-    const [lang, setLangState] = useState(() => {
-        try {
-            return localStorage.getItem(STORAGE_KEY) || 'it';
-        } catch {
-            return 'it';
-        }
-    });
+    const [lang, setLangState] = useState(detectLang);
     useEffect(() => {
         try {
             localStorage.setItem(STORAGE_KEY, lang);
