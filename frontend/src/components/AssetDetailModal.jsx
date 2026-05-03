@@ -33,7 +33,7 @@ const SERIES = [
     { key: 'netPosition', label: 'Net', color: '#f59e0b', gradId: 'gNet', yAxis: 'left', fmt: 'k' },
     { key: 'long',        label: 'Long',color: '#34d399', gradId: 'gLong', yAxis: 'left', fmt: 'k' },
     { key: 'short',       label: 'Short', color: '#fb7185', gradId: 'gShort', yAxis: 'left', fmt: 'k' },
-    { key: 'price',       label: 'Prezzo', color: '#fcd34d', gradId: 'gPrice', yAxis: 'right', fmt: 'raw' },
+    { key: 'price',       label: 'Prezzo', color: '#60a5fa', gradId: 'gPrice', yAxis: 'right', fmt: 'raw' },
 ];
 
 export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleFav }) {
@@ -104,6 +104,16 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
         .reverse();
     const longTotal = (snapshot?.long || 0) + (snapshot?.short || 0) || 1;
     const longPct = Math.round(((snapshot?.long || 0) / longTotal) * 100);
+
+    // Price domain padded so variations are visible (right axis)
+    const priceDomain = (() => {
+        const prices = chartData.map((d) => d.price).filter((p) => typeof p === 'number');
+        if (!prices.length) return ['auto', 'auto'];
+        const min = Math.min(...prices);
+        const max = Math.max(...prices);
+        const pad = Math.max((max - min) * 0.15, max * 0.01);
+        return [min - pad, max + pad];
+    })();
 
     // Zoom helpers
     const zStart = zoomRange ? Math.max(0, zoomRange[0]) : 0;
@@ -386,12 +396,15 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                             <YAxis
                                                 yAxisId="right"
                                                 orientation="right"
-                                                stroke="#fcd34d"
+                                                stroke="#60a5fa"
                                                 fontSize={11}
                                                 axisLine={false}
                                                 tickLine={false}
                                                 width={60}
                                                 tick={{ fontFamily: 'Geist Mono' }}
+                                                domain={priceDomain}
+                                                allowDataOverflow={false}
+                                                tickFormatter={(v) => Number(v).toLocaleString('en-US', { maximumFractionDigits: 2 })}
                                                 hide={!visible.price}
                                             />
                                             <Tooltip
