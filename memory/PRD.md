@@ -41,6 +41,28 @@
 - Backend tests: 12/12 PASS
 - Frontend: 95% (only cold-cache transient banner; resolved on subsequent loads)
 
+## Latest Session (Feb 2026) — Round 7 (backtest ideale 2 settimane)
+- **Logica performance ridisegnata** come richiesto dall'utente: backtest "best-case" su 2 settimane.
+  - W1 (settimana dopo il report): entry al prezzo migliore in direzione del segnale — LONG → W1 min, SHORT → W1 max.
+  - W2 (settimana successiva): exit al prezzo migliore opposto — LONG → W2 max, SHORT → W2 min.
+  - `netPct = (exit − entry)/entry × 100` con segno della direzione. WIN se > 0.
+- Tabella: aggiunte colonne **W1 Low/High + W2 Low/High** per mostrare il range di ingresso e di uscita.
+- Fetch prezzi esteso a +21 giorni (era +14) per coprire la W2.
+- Disclaimer IT/EN aggiornato. PDF riflette la nuova logica.
+- Esempio NAS100 2026-03-10 LONG: Entry 23898 (W1 min) → Exit 24188 (W2 max) = **+1.21% WIN** ✓ (prima era erroneamente LOSS).
+- NAS100 stats: 22 trade, win rate 95.5%, cumulativo +60.7% — backtest con tempismo ideale.
+
+## Latest Session (Feb 2026) — Round 6 (logica P/L corretta)
+- **P/L su entry/exit close** (non più MFE−MAE): logica realistica del trade buy-and-hold senza stop intraday.
+  - Entry = lunedì close della settimana successiva al report.
+  - Exit = venerdì close della stessa settimana.
+  - `netPct = (exit − entry) / entry × 100 × direction` (LONG: +1, SHORT: −1).
+  - WIN se netPct > 0, LOSS altrimenti.
+  - Week Low/High mantenuti in tabella come info contestuale (escursione settimanale).
+- **Tabella performance**: aggiunta colonna "Exit" tra Entry e Week Low/High.
+- **Disclaimer aggiornato** (IT/EN). PDF aggiornato.
+- Esempio NAS100 2026-03-10 (LONG 24655 → 23898): ora correttamente classificato −3.07% LOSS (era erroneamente calcolato su MFE/MAE).
+
 ## Latest Session (Feb 2026) — Round 5 (rifinitura finale)
 - **Trade performance solo se bias concordi**: `_synthetic_verdict` aggiornato — LONG solo se `net>0 AND delta>0`, SHORT solo se `net<0 AND delta<0`, altrimenti WAIT (escluso). `_backfill_verdicts` ora rigenera sempre i sintetici per propagare la nuova regola. `verdict_performance` filtra i WAIT. Test EURUSD: 26 trade (era 50), 25 valutati, 52% win rate, R cumulativo +1R.
 - **Toggle lingua nel footer** (no più overlay): integrato come elemento del flusso, parent = footer DIV. Scrolla con la pagina, sempre visibile alla fine.

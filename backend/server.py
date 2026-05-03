@@ -567,10 +567,12 @@ async def verdict_performance(asset_id: str) -> Dict[str, Any]:
         dates = [v["entryReportDate"] for v in unique_verdicts if v.get("entryReportDate")]
         if dates:
             min_d = datetime.strptime(min(dates), "%Y-%m-%d")
-            max_d = datetime.strptime(max(dates), "%Y-%m-%d") + timedelta(days=14)
+            # Need prices up to 2 weeks after the latest report date (week-2 exit window)
+            max_d = datetime.strptime(max(dates), "%Y-%m-%d") + timedelta(days=21)
             prices = await fetch_daily_closes(asset_id, min_d - timedelta(days=3), max_d)
 
     def _week_min_max(start_date: str, end_date: str):
+        """Return (min, max) close in [start_date, end_date] inclusive, or (None, None)."""
         try:
             sd = datetime.strptime(start_date, "%Y-%m-%d").date()
             ed = datetime.strptime(end_date, "%Y-%m-%d").date()
@@ -590,37 +592,51 @@ async def verdict_performance(asset_id: str) -> Dict[str, Any]:
     results = []
     wins = losses = pending = 0
     cum_r = 0
+    cum_net_pct = 0.0
     for v in unique_verdicts:
         report_date = v.get("entryReportDate")
-        monday = next_monday(report_date)
-        friday = following_friday(monday)
-        entry = nearest_close_on_or_after(prices, monday)
-        entry_price = entry[1] if entry else None
-        entry_date = entry[0] if entry else monday
+        # Week 1 (entry window): Monday → Friday of the week AFTER the report
+        week1_mon = next_monday(report_date)
+        week1_fri = following_friday(week1_mon)
+        # Week 2 (exit window): the following week
+        try:
+            w2_mon_d = datetime.strptime(week1_mon, "%Y-%m-%d").date() + timedelta(days=7)
+            week2_mon = w2_mon_d.isoformat()
+        except Exception:
+            week2_mon = week1_mon
+        week2_fri = following_friday(week2_mon)
 
-        week_min, week_max = _week_min_max(entry_date, friday)
+        w1_min, w1_max = _week_min_max(week1_mon, week1_fri)
+        w2_min, w2_max = _week_min_max(week2_mon, week2_fri)
 
         verdict_dir = v.get("verdict")
+        entry_price = None
+        exit_price = None
         r = None
+        net_pct = None
         outcome = "PENDING"
 
-        if entry_price is not None and week_min is not None and week_max is not None:
+        if (verdict_dir in ("LONG", "SHORT")
+                and w1_min is not None and w1_max is not None
+                and w2_min is not None and w2_max is not None):
             if verdict_dir == "LONG":
-                mfe = max(0.0, week_max - entry_price)
-                mae = max(0.0, entry_price - week_min)
-            elif verdict_dir == "SHORT":
-                mfe = max(0.0, entry_price - week_min)
-                mae = max(0.0, week_max - entry_price)
-            else:
-                outcome = "NEUTRAL"
-                mfe = mae = None
-
-            if verdict_dir in ("LONG", "SHORT") and mfe is not None and mae is not None:
-                if mfe > mae:
+                # Buy the week-1 pullback, sell the week-2 rally
+                entry_price = w1_min
+                exit_price = w2_max
+                direction = 1
+            else:  # SHORT
+                # Sell the week-1 rally, cover the week-2 dip
+                entry_price = w1_max
+                exit_price = w2_min
+                direction = -1
+            if entry_price and entry_price != 0:
+                raw_pct = ((exit_price - entry_price) / entry_price) * 100 * direction
+                net_pct = round(raw_pct, 3)
+                if net_pct > 0:
                     r = 1
                     outcome = "WIN"
                     wins += 1
-                elif mae > mfe:
+                elif net_pct < 0:
                     r = -1
                     outcome = "LOSS"
                     losses += 1
@@ -628,6 +644,7 @@ async def verdict_performance(asset_id: str) -> Dict[str, Any]:
                     r = 0
                     outcome = "FLAT"
                 cum_r += r
+                cum_net_pct += net_pct
         else:
             pending += 1
 
@@ -635,12 +652,16 @@ async def verdict_performance(asset_id: str) -> Dict[str, Any]:
             "verdictDate": report_date,
             "verdict": verdict_dir,
             "confidence": v.get("confidence"),
-            "entryDate": entry_date,
+            "entryDate": week1_mon,
             "entryPrice": entry_price,
-            "exitDate": friday,
-            "weekMin": week_min,
-            "weekMax": week_max,
+            "exitDate": week2_fri,
+            "exitPrice": exit_price,
+            "weekMin": w1_min,
+            "weekMax": w1_max,
+            "week2Min": w2_min,
+            "week2Max": w2_max,
             "r": r,
+            "netPct": net_pct,
             "outcome": outcome,
             "summary": v.get("summary"),
             "synthetic": v.get("synthetic", False),
@@ -657,6 +678,7 @@ async def verdict_performance(asset_id: str) -> Dict[str, Any]:
         "pending": pending,
         "winRate": win_rate,
         "cumulativeR": cum_r,
+        "cumulativeNetPct": round(cum_net_pct, 2),
         "history": list(reversed(results))[:50],
     }
 

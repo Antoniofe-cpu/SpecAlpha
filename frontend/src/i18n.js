@@ -190,16 +190,21 @@ const STR = {
 
         // Performance — semplificata: R per trade è +1 (win) o -1 (loss)
         'modal.perf.r_cumulative': 'R cumulativo',
+        'modal.perf.net_pct_cumulative': 'Net P/L cumulativo',
         'modal.perf.col.entry_price': 'Entry',
-        'modal.perf.col.week_min': 'Week Low',
-        'modal.perf.col.week_max': 'Week High',
+        'modal.perf.col.exit_price': 'Exit',
+        'modal.perf.col.week_min': 'W1 Low',
+        'modal.perf.col.week_max': 'W1 High',
+        'modal.perf.col.week2_min': 'W2 Low',
+        'modal.perf.col.week2_max': 'W2 High',
         'modal.perf.col.r': 'R',
-        'modal.perf.equity_label_r': (n) => `R Curve · ultimi ${n} verdetti valutati`,
+        'modal.perf.col.net_pct': 'P/L %',
+        'modal.perf.equity_label_pct': (n) => `Equity Curve · ultimi ${n} verdetti valutati (P/L %)`,
         'modal.perf.last_n': (n) => `Ultimi ${n} verdetti`,
         'modal.perf_logic_r':
-            'Logica: entry = close di lunedì · risk window = lunedì → venerdì · WIN (+1R) se la settimana ha respirato più a favore che contro, LOSS (−1R) altrimenti. R cumulativo = somma dei +1/−1.',
+            'Logica: il trade entra nella settimana successiva al report (W1) al prezzo migliore in direzione del segnale (LONG → min W1, SHORT → max W1) ed esce nella seconda settimana (W2) al prezzo migliore opposto (LONG → max W2, SHORT → min W2). P/L % = (Exit − Entry)/Entry con segno della direzione. WIN se P/L > 0.',
         'modal.perf_synth_note_r':
-            'Nota: i verdetti sono ricostruiti da una regola sintetica deterministica (segui il Δ WoW). La logica live (AI + macro + price action) tende a essere più affidabile dei backfill puramente meccanici.',
+            'Nota: i verdetti sono ricostruiti da una regola sintetica deterministica (LONG solo se Net e Δ WoW concordi long, SHORT solo se concordi short, altrimenti WAIT esclusi). Il backtest misura il potenziale massimo del segnale su 2 settimane con tempismo ideale; la logica live (AI + macro + price action) tende comunque a essere più affidabile dei backfill meccanici.',
 
         // PDF
         'pdf.title': 'Speculative Alpha · COT Report',
@@ -222,6 +227,7 @@ const STR = {
         'pdf.stats.losses': 'Loss',
         'pdf.stats.winrate': 'Win rate',
         'pdf.stats.cum_r': 'R cumulativo',
+        'pdf.stats.cum_net_pct': 'Net Excursion %',
         'pdf.footer': 'Sorgenti: CFTC (Tradingster) · TradingEconomics · Yahoo Finance · Gemini AI',
         'pdf.no_data': 'Dati non disponibili.',
     },
@@ -384,16 +390,21 @@ const STR = {
 
         // Performance — R cumulative (+1/-1 per trade)
         'modal.perf.r_cumulative': 'Cumulative R',
+        'modal.perf.net_pct_cumulative': 'Cumulative Net P/L',
         'modal.perf.col.entry_price': 'Entry',
-        'modal.perf.col.week_min': 'Week Low',
-        'modal.perf.col.week_max': 'Week High',
+        'modal.perf.col.exit_price': 'Exit',
+        'modal.perf.col.week_min': 'W1 Low',
+        'modal.perf.col.week_max': 'W1 High',
+        'modal.perf.col.week2_min': 'W2 Low',
+        'modal.perf.col.week2_max': 'W2 High',
         'modal.perf.col.r': 'R',
-        'modal.perf.equity_label_r': (n) => `R Curve · last ${n} evaluated verdicts`,
+        'modal.perf.col.net_pct': 'P/L %',
+        'modal.perf.equity_label_pct': (n) => `Equity Curve · last ${n} evaluated verdicts (P/L %)`,
         'modal.perf.last_n': (n) => `Last ${n} verdicts`,
         'modal.perf_logic_r':
-            'Logic: entry = Monday close · risk window = Monday → Friday · WIN (+1R) if the week breathed more in favour than against, LOSS (−1R) otherwise. Cumulative R = sum of +1/−1.',
+            'Logic: trade enters in the week after the report (W1) at the best price in the signal direction (LONG → W1 min, SHORT → W1 max) and exits the following week (W2) at the best opposite price (LONG → W2 max, SHORT → W2 min). P/L % = (Exit − Entry)/Entry signed by direction. WIN if P/L > 0.',
         'modal.perf_synth_note_r':
-            'Note: backfilled verdicts come from a deterministic synthetic rule (follow Δ WoW). The live logic (AI + macro + price action) tends to be more reliable than purely mechanical backfills.',
+            'Note: backfilled verdicts come from a deterministic synthetic rule (LONG only when Net and Δ WoW are both long, SHORT only when both short, otherwise WAIT excluded). The backtest measures the signal\'s maximum potential over 2 weeks with ideal timing; the live logic (AI + macro + price action) still tends to be more reliable than mechanical backfills.',
 
         // PDF
         'pdf.title': 'Speculative Alpha · COT Report',
@@ -416,6 +427,7 @@ const STR = {
         'pdf.stats.losses': 'Loss',
         'pdf.stats.winrate': 'Win rate',
         'pdf.stats.cum_r': 'Cumulative R',
+        'pdf.stats.cum_net_pct': 'Net Excursion %',
         'pdf.footer': 'Sources: CFTC (Tradingster) · TradingEconomics · Yahoo Finance · Gemini AI',
         'pdf.no_data': 'Data unavailable.',
     },

@@ -483,7 +483,7 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
             y += noteLines.length * 3 + 4;
 
             if (perf) {
-                // Stats strip
+                // Stats strip (Net Excursion % primary, R secondary)
                 const stats = [
                     [t('pdf.stats.total'), perf.totalVerdicts ?? 0, TEXT],
                     [t('pdf.stats.evaluated'), perf.evaluated ?? 0, TEXT],
@@ -491,62 +491,62 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                     [t('pdf.stats.losses'), perf.losses ?? 0, RED],
                     [t('pdf.stats.winrate'), perf.winRate != null ? `${perf.winRate}%` : '—', AMBER],
                     [
+                        t('pdf.stats.cum_net_pct'),
+                        perf.cumulativeNetPct != null ? `${formatSigned(perf.cumulativeNetPct)}%` : '—',
+                        (perf.cumulativeNetPct ?? 0) > 0 ? GREEN : (perf.cumulativeNetPct ?? 0) < 0 ? RED : TEXT,
+                    ],
+                    [
                         t('pdf.stats.cum_r'),
                         perf.cumulativeR != null ? `${formatSigned(perf.cumulativeR)}R` : '—',
                         (perf.cumulativeR ?? 0) > 0 ? GREEN : (perf.cumulativeR ?? 0) < 0 ? RED : TEXT,
                     ],
                 ];
-                const sw = (W - M * 2 - 5 * 2) / stats.length;
+                const sw = (W - M * 2 - 4 * (stats.length - 1)) / stats.length;
                 stats.forEach(([label, val, color], i) => {
-                    const sx = M + i * (sw + 2);
+                    const sx = M + i * (sw + 4);
                     panel(sx, y, sw, 18);
                     setText(MUTED);
                     pdf.setFont('helvetica', 'bold');
-                    pdf.setFontSize(6.5);
+                    pdf.setFontSize(6);
                     pdf.text(String(label).toUpperCase(), sx + 3, y + 5);
                     setText(color);
                     pdf.setFont('helvetica', 'bold');
-                    pdf.setFontSize(13);
+                    pdf.setFontSize(11);
                     pdf.text(String(val), sx + 3, y + 14);
                 });
                 y += 22;
 
-                // R-curve sparkline (vector, native PDF)
+                // Equity curve (cumulative Net Excursion %) — vector, native PDF
                 const evaluated = (perf.history || [])
                     .slice()
                     .reverse()
-                    .filter((r) => r.r !== null && r.r !== undefined);
+                    .filter((r) => r.netPct !== null && r.netPct !== undefined);
                 if (evaluated.length > 1) {
                     let cum = 0;
                     const series = evaluated.map((r) => {
-                        cum += r.r;
+                        cum += r.netPct;
                         return cum;
                     });
                     const cw = W - M * 2;
-                    const ch = 32;
+                    const ch = 36;
                     panel(M, y, cw, ch);
                     setText(MUTED);
                     pdf.setFont('helvetica', 'bold');
                     pdf.setFontSize(7);
-                    pdf.text(t('modal.perf.equity_label_r', series.length).toUpperCase(), M + 4, y + 5);
+                    pdf.text(t('modal.perf.equity_label_pct', series.length).toUpperCase(), M + 4, y + 5);
                     setText(cum > 0 ? GREEN : cum < 0 ? RED : MUTED);
                     pdf.setFont('helvetica', 'bold');
                     pdf.setFontSize(10);
-                    pdf.text(`${formatSigned(cum)}R`, M + cw - 4, y + 5, { align: 'right' });
+                    pdf.text(`${formatSigned(cum.toFixed(2))}%`, M + cw - 4, y + 5, { align: 'right' });
 
                     const minV = Math.min(0, ...series);
                     const maxV = Math.max(0, ...series);
-                    const range = Math.max(1, maxV - minV);
+                    const range = Math.max(0.01, maxV - minV);
                     const px = (i) => M + 4 + (i / (series.length - 1)) * (cw - 8);
                     const py = (v) => y + ch - 4 - ((v - minV) / range) * (ch - 12);
-
-                    // baseline at zero
                     setDraw(BORDER);
                     pdf.setLineWidth(0.15);
-                    const yZero = py(0);
-                    pdf.line(M + 4, yZero, M + cw - 4, yZero);
-
-                    // curve
+                    pdf.line(M + 4, py(0), M + cw - 4, py(0));
                     setDraw(AMBER);
                     pdf.setLineWidth(0.6);
                     for (let i = 1; i < series.length; i++) {
@@ -555,7 +555,7 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                     y += ch + 6;
                 }
 
-                // Last 10 verdicts table
+                // Last 10 verdicts table (Net % + R)
                 ensurePage(60);
                 setText(MUTED);
                 pdf.setFont('helvetica', 'bold');
@@ -585,8 +585,12 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                         t('modal.perf.col.report'),
                         t('modal.perf.col.verdict'),
                         t('modal.perf.col.entry_price'),
+                        t('modal.perf.col.exit_price'),
                         t('modal.perf.col.week_min'),
                         t('modal.perf.col.week_max'),
+                        t('modal.perf.col.week2_min'),
+                        t('modal.perf.col.week2_max'),
+                        t('modal.perf.col.net_pct'),
                         t('modal.perf.col.r'),
                         t('modal.perf.col.outcome'),
                     ]],
@@ -594,14 +598,17 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                         r.verdictDate || '—',
                         r.verdict || '—',
                         r.entryPrice != null ? Number(r.entryPrice).toFixed(4) : '—',
+                        r.exitPrice != null ? Number(r.exitPrice).toFixed(4) : '—',
                         r.weekMin != null ? Number(r.weekMin).toFixed(4) : '—',
                         r.weekMax != null ? Number(r.weekMax).toFixed(4) : '—',
+                        r.week2Min != null ? Number(r.week2Min).toFixed(4) : '—',
+                        r.week2Max != null ? Number(r.week2Max).toFixed(4) : '—',
+                        r.netPct != null ? `${formatSigned(r.netPct.toFixed(2))}%` : '—',
                         r.r != null ? `${formatSigned(r.r)}R` : '—',
                         r.outcome || '—',
                     ]),
                     didParseCell: (data) => {
                         if (data.section !== 'body') return;
-                        // Verdict column: color
                         if (data.column.index === 1) {
                             const v = data.cell.text[0];
                             if (v === 'LONG') data.cell.styles.textColor = GREEN;
@@ -609,15 +616,13 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                             else if (v === 'WAIT') data.cell.styles.textColor = AMBER;
                             data.cell.styles.fontStyle = 'bold';
                         }
-                        // R column: color
-                        if (data.column.index === 5) {
+                        if (data.column.index === 8 || data.column.index === 9) {
                             const v = data.cell.text[0];
                             if (v.startsWith('+')) data.cell.styles.textColor = GREEN;
                             else if (v.startsWith('-')) data.cell.styles.textColor = RED;
                             data.cell.styles.fontStyle = 'bold';
                         }
-                        // Outcome column
-                        if (data.column.index === 6) {
+                        if (data.column.index === 10) {
                             const v = data.cell.text[0];
                             if (v === 'WIN') data.cell.styles.textColor = GREEN;
                             else if (v === 'LOSS') data.cell.styles.textColor = RED;
@@ -1284,35 +1289,55 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                                     </div>
                                                 ))}
                                             </div>
-                                            <div className="bg-black/30 border border-white/5 rounded-2xl p-3 mb-4">
-                                                <div className="text-[10px] tracking-widest uppercase text-gray-500 font-semibold mb-1">
-                                                    {t('modal.perf.r_cumulative')}
+                                            {/* Stats strip: Net Excursion (primary) + R (secondary) */}
+                                            <div className="grid grid-cols-2 gap-3 mb-4">
+                                                <div className="bg-black/30 border border-amber-500/25 rounded-2xl p-3">
+                                                    <div className="text-[10px] tracking-widest uppercase text-amber-300/80 font-semibold mb-1">
+                                                        {t('modal.perf.net_pct_cumulative')}
+                                                    </div>
+                                                    <div
+                                                        className={cn(
+                                                            'font-mono text-[24px] font-bold tnum',
+                                                            (performance.cumulativeNetPct ?? 0) > 0 && 'text-[#34d399]',
+                                                            (performance.cumulativeNetPct ?? 0) < 0 && 'text-[#fb7185]',
+                                                            (performance.cumulativeNetPct ?? 0) === 0 && 'text-gray-300'
+                                                        )}
+                                                    >
+                                                        {performance.cumulativeNetPct != null
+                                                            ? `${formatSigned(performance.cumulativeNetPct)}%`
+                                                            : '—'}
+                                                    </div>
                                                 </div>
-                                                <div
-                                                    className={cn(
-                                                        'font-mono text-[22px] font-semibold tnum',
-                                                        (performance.cumulativeR ?? 0) > 0 && 'text-[#34d399]',
-                                                        (performance.cumulativeR ?? 0) < 0 && 'text-[#fb7185]',
-                                                        (performance.cumulativeR ?? 0) === 0 && 'text-gray-300'
-                                                    )}
-                                                >
-                                                    {performance.cumulativeR != null
-                                                        ? `${formatSigned(performance.cumulativeR)}R`
-                                                        : '—'}
+                                                <div className="bg-black/30 border border-white/5 rounded-2xl p-3">
+                                                    <div className="text-[10px] tracking-widest uppercase text-gray-500 font-semibold mb-1">
+                                                        {t('modal.perf.r_cumulative')}
+                                                    </div>
+                                                    <div
+                                                        className={cn(
+                                                            'font-mono text-[20px] font-semibold tnum',
+                                                            (performance.cumulativeR ?? 0) > 0 && 'text-[#34d399]',
+                                                            (performance.cumulativeR ?? 0) < 0 && 'text-[#fb7185]',
+                                                            (performance.cumulativeR ?? 0) === 0 && 'text-gray-300'
+                                                        )}
+                                                    >
+                                                        {performance.cumulativeR != null
+                                                            ? `${formatSigned(performance.cumulativeR)}R`
+                                                            : '—'}
+                                                    </div>
                                                 </div>
                                             </div>
                                             {performance.history.length > 0 ? (
                                                 <>
-                                                    {/* R Cumulative curve (+1 / -1 per trade) */}
+                                                    {/* Equity curve based on cumulative Net Excursion % */}
                                                     {(() => {
                                                         const evaluated = [...performance.history]
                                                             .reverse()
-                                                            .filter((r) => r.r !== null && r.r !== undefined);
+                                                            .filter((r) => r.netPct !== null && r.netPct !== undefined);
                                                         if (evaluated.length === 0) return null;
                                                         let cum = 0;
                                                         const curve = evaluated.map((r) => {
-                                                            cum += r.r;
-                                                            return { date: r.verdictDate, equity: cum };
+                                                            cum += r.netPct;
+                                                            return { date: r.verdictDate, equity: Number(cum.toFixed(3)) };
                                                         });
                                                         const showCurve = curve.slice(-50);
                                                         return (
@@ -1322,7 +1347,7 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                                             >
                                                                 <div className="flex items-center justify-between mb-2">
                                                                     <span className="text-[11px] uppercase tracking-[0.22em] text-gray-500 font-semibold">
-                                                                        {t('modal.perf.equity_label_r', showCurve.length)}
+                                                                        {t('modal.perf.equity_label_pct', showCurve.length)}
                                                                     </span>
                                                                     <span
                                                                         className={cn(
@@ -1332,10 +1357,10 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                                                             cum === 0 && 'text-gray-300'
                                                                         )}
                                                                     >
-                                                                        {formatSigned(cum)}R
+                                                                        {formatSigned(cum.toFixed(2))}%
                                                                     </span>
                                                                 </div>
-                                                                <div className="h-[160px]">
+                                                                <div className="h-[180px]">
                                                                     <ResponsiveContainer width="100%" height="100%">
                                                                         <AreaChart data={showCurve} margin={{ top: 4, right: 4, bottom: 0, left: -10 }}>
                                                                             <defs>
@@ -1359,9 +1384,9 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                                                                 fontSize={10}
                                                                                 axisLine={false}
                                                                                 tickLine={false}
-                                                                                width={44}
+                                                                                width={50}
                                                                                 tick={{ fontFamily: 'Geist Mono' }}
-                                                                                tickFormatter={(v) => v + 'R'}
+                                                                                tickFormatter={(v) => v + '%'}
                                                                             />
                                                                             <Tooltip
                                                                                 contentStyle={{
@@ -1371,7 +1396,7 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                                                                     fontSize: 11,
                                                                                     fontFamily: 'Geist Mono',
                                                                                 }}
-                                                                                formatter={(v) => `${v}R`}
+                                                                                formatter={(v) => `${v}%`}
                                                                             />
                                                                             <Area
                                                                                 type="monotone"
@@ -1397,8 +1422,12 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                                                 <th className="px-2 py-2 text-left">{t('modal.perf.col.report')}</th>
                                                                 <th className="px-2 py-2 text-left">{t('modal.perf.col.verdict')}</th>
                                                                 <th className="px-2 py-2 text-right">{t('modal.perf.col.entry_price')}</th>
+                                                                <th className="px-2 py-2 text-right">{t('modal.perf.col.exit_price')}</th>
                                                                 <th className="px-2 py-2 text-right">{t('modal.perf.col.week_min')}</th>
                                                                 <th className="px-2 py-2 text-right">{t('modal.perf.col.week_max')}</th>
+                                                                <th className="px-2 py-2 text-right">{t('modal.perf.col.week2_min')}</th>
+                                                                <th className="px-2 py-2 text-right">{t('modal.perf.col.week2_max')}</th>
+                                                                <th className="px-2 py-2 text-right">{t('modal.perf.col.net_pct')}</th>
                                                                 <th className="px-2 py-2 text-right">{t('modal.perf.col.r')}</th>
                                                                 <th className="px-2 py-2 text-left">{t('modal.perf.col.outcome')}</th>
                                                             </tr>
@@ -1426,11 +1455,31 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                                                     <td className="px-2 py-2 text-right text-gray-200">
                                                                         {r.entryPrice != null ? Number(r.entryPrice).toFixed(4) : '—'}
                                                                     </td>
-                                                                    <td className="px-2 py-2 text-right text-gray-400">
+                                                                    <td className="px-2 py-2 text-right text-gray-200">
+                                                                        {r.exitPrice != null ? Number(r.exitPrice).toFixed(4) : '—'}
+                                                                    </td>
+                                                                    <td className="px-2 py-2 text-right text-gray-500">
                                                                         {r.weekMin != null ? Number(r.weekMin).toFixed(4) : '—'}
                                                                     </td>
-                                                                    <td className="px-2 py-2 text-right text-gray-400">
+                                                                    <td className="px-2 py-2 text-right text-gray-500">
                                                                         {r.weekMax != null ? Number(r.weekMax).toFixed(4) : '—'}
+                                                                    </td>
+                                                                    <td className="px-2 py-2 text-right text-gray-500">
+                                                                        {r.week2Min != null ? Number(r.week2Min).toFixed(4) : '—'}
+                                                                    </td>
+                                                                    <td className="px-2 py-2 text-right text-gray-500">
+                                                                        {r.week2Max != null ? Number(r.week2Max).toFixed(4) : '—'}
+                                                                    </td>
+                                                                    <td
+                                                                        className={cn(
+                                                                            'px-2 py-2 text-right font-semibold',
+                                                                            r.netPct == null && 'text-gray-500',
+                                                                            r.netPct > 0 && 'text-[#34d399]',
+                                                                            r.netPct < 0 && 'text-[#fb7185]',
+                                                                            r.netPct === 0 && 'text-gray-300'
+                                                                        )}
+                                                                    >
+                                                                        {r.netPct != null ? `${formatSigned(r.netPct.toFixed(2))}%` : '—'}
                                                                     </td>
                                                                     <td
                                                                         className={cn(
