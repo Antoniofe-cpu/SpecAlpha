@@ -14,3 +14,9 @@ export const fetchOne = (assetId, refresh = false) =>
 export const fetchHistory = (assetId, limit = 60, refresh = false) =>
     slow.get(`/cot/${assetId}/history`, { params: { limit, refresh } }).then(r => r.data);
 export const refreshCache = () => fast.post('/cot/refresh').then(r => r.data);
+export const fetchMacro = (assetId, refresh = false) =>
+    slow.get(`/macro/${assetId}`, { params: { refresh } }).then(r => r.data);
+export const fetchVerdict = (assetId, refresh = false) =>
+    slow.get(`/verdict/${assetId}`, { params: { refresh } }).then(r => r.data);
+export const fetchVerdictPerformance = (assetId) =>
+    slow.get(`/verdict/${assetId}/performance`).then(r => r.data);

@@ -25,8 +25,13 @@ import {
     ZoomIn,
     ZoomOut,
     Maximize,
+    Newspaper,
+    Target as TargetIcon,
+    Eye,
+    EyeOff,
+    TrendingDown,
 } from 'lucide-react';
-import { fetchHistory, fetchOne } from '../api';
+import { fetchHistory, fetchOne, fetchMacro, fetchVerdict, fetchVerdictPerformance } from '../api';
 import { cn, formatNumber, formatSigned, getTrendAnalysis, TONE_CLASSES, downloadCSV } from '../utils';
 
 const SERIES = [
@@ -50,6 +55,14 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
     });
     // Zoom range inside the selected windowSize slice: [startIndex, endIndex] over chartData
     const [zoomRange, setZoomRange] = useState(null); // null = full window
+
+    const [macro, setMacro] = useState(null);
+    const [macroLoading, setMacroLoading] = useState(false);
+    const [verdict, setVerdict] = useState(null);
+    const [verdictLoading, setVerdictLoading] = useState(false);
+    const [showPerformance, setShowPerformance] = useState(false);
+    const [performance, setPerformance] = useState(null);
+    const [performanceLoading, setPerformanceLoading] = useState(false);
 
     const toggleSeries = (k) =>
         setVisible((v) => {
@@ -82,6 +95,48 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
     useEffect(() => {
         setSnapshot(asset);
     }, [asset?.assetId]);
+
+    // Lazy fetch macro + verdict on modal open / asset change
+    useEffect(() => {
+        if (!asset?.assetId) return;
+        let cancelled = false;
+        setMacroLoading(true);
+        setVerdictLoading(true);
+        setMacro(null);
+        setVerdict(null);
+        setPerformance(null);
+        setShowPerformance(false);
+        fetchMacro(asset.assetId)
+            .then((d) => !cancelled && setMacro(d))
+            .catch(() => {})
+            .finally(() => !cancelled && setMacroLoading(false));
+        fetchVerdict(asset.assetId)
+            .then((d) => !cancelled && setVerdict(d))
+            .catch(() => {})
+            .finally(() => !cancelled && setVerdictLoading(false));
+        return () => { cancelled = true; };
+    }, [asset?.assetId]);
+
+    const loadPerformance = async () => {
+        if (!asset?.assetId) return;
+        setPerformanceLoading(true);
+        try {
+            const d = await fetchVerdictPerformance(asset.assetId);
+            setPerformance(d);
+        } catch (e) {
+            console.error(e);
+        } finally {
+            setPerformanceLoading(false);
+        }
+    };
+
+    const togglePerformance = () => {
+        setShowPerformance((prev) => {
+            const next = !prev;
+            if (next && !performance) loadPerformance();
+            return next;
+        });
+    };
 
     const handleRefresh = async () => {
         setRefreshing(true);
@@ -263,6 +318,268 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                 </div>
                                 <p className="text-[14px] leading-relaxed text-gray-200 italic">"{snapshot.macro}"</p>
                             </div>
+                        </div>
+
+                        {/* Macro Sentiment + Final Verdict */}
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                            <div className="bg-[#0e0e14] border border-white/[0.07] rounded-3xl p-5" data-testid="macro-sentiment-card">
+                                <div className="flex items-center gap-2 mb-3">
+                                    <Newspaper size={14} className="text-sky-400" />
+                                    <span className="text-[11px] tracking-[0.28em] uppercase text-sky-300 font-bold">
+                                        Macro Sentiment · Last 7 days
+                                    </span>
+                                    <span className="ml-auto text-[10px] text-gray-500 font-mono">
+                                        {macro?.eventCount ?? '—'} events
+                                    </span>
+                                </div>
+                                {macroLoading ? (
+                                    <div className="flex items-center gap-2 text-gray-500 text-[13px]">
+                                        <RefreshCw size={14} className="animate-spin text-sky-400/60" />
+                                        Analisi macro da tradingeconomics…
+                                    </div>
+                                ) : (
+                                    <>
+                                        <p className="text-[14px] leading-relaxed text-gray-200 italic mb-3">
+                                            {macro?.summary || '—'}
+                                        </p>
+                                        {macro?.events?.length > 0 && (
+                                            <div className="space-y-1.5">
+                                                {macro.events.slice(0, 4).map((e, i) => (
+                                                    <div key={i} className="flex items-center gap-2 text-[12px] font-mono">
+                                                        <span className="text-sky-400 font-bold w-8">{e.country}</span>
+                                                        <span className="text-gray-500 w-20">{e.date}</span>
+                                                        <span className="text-gray-200 flex-1 truncate">{e.event}</span>
+                                                        {e.previous && (
+                                                            <span className="text-gray-500">prev {e.previous}</span>
+                                                        )}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </>
+                                )}
+                            </div>
+
+                            <div
+                                data-testid="final-verdict-card"
+                                className={cn(
+                                    'rounded-3xl p-5 border',
+                                    verdict?.verdict === 'LONG'
+                                        ? 'bg-[#10b981]/[0.07] border-[#10b981]/30'
+                                        : verdict?.verdict === 'SHORT'
+                                            ? 'bg-[#f43f5e]/[0.07] border-[#f43f5e]/30'
+                                            : 'bg-amber-500/[0.06] border-amber-500/25'
+                                )}
+                            >
+                                <div className="flex items-center gap-2 mb-3">
+                                    <TargetIcon size={14} className="text-amber-400" />
+                                    <span className="text-[11px] tracking-[0.28em] uppercase text-amber-300 font-bold">
+                                        Final Verdict
+                                    </span>
+                                    <span className="ml-auto text-[10px] text-gray-500 font-mono">
+                                        conf {verdict?.confidence ?? '—'}/5
+                                    </span>
+                                </div>
+                                {verdictLoading ? (
+                                    <div className="flex items-center gap-2 text-gray-500 text-[13px]">
+                                        <RefreshCw size={14} className="animate-spin text-amber-400/60" />
+                                        Generazione verdetto…
+                                    </div>
+                                ) : verdict ? (
+                                    <>
+                                        <div className="flex items-center gap-3 mb-3">
+                                            <span
+                                                className={cn(
+                                                    'inline-flex items-center gap-2 px-4 py-2 rounded-full font-display text-[16px] font-bold tracking-wider',
+                                                    verdict.verdict === 'LONG' && 'bg-[#10b981]/20 text-[#34d399]',
+                                                    verdict.verdict === 'SHORT' && 'bg-[#f43f5e]/20 text-[#fb7185]',
+                                                    verdict.verdict === 'WAIT' && 'bg-amber-500/20 text-amber-300'
+                                                )}
+                                            >
+                                                {verdict.verdict === 'LONG' && <TrendingUp size={16} />}
+                                                {verdict.verdict === 'SHORT' && <TrendingDown size={16} />}
+                                                {verdict.verdict === 'WAIT' && <Activity size={16} />}
+                                                {verdict.verdict}
+                                            </span>
+                                            <div className="flex items-center gap-0.5">
+                                                {[1, 2, 3, 4, 5].map((n) => (
+                                                    <div
+                                                        key={n}
+                                                        className={cn(
+                                                            'w-1.5 h-4 rounded-full',
+                                                            n <= (verdict.confidence || 0) ? 'bg-amber-400' : 'bg-white/10'
+                                                        )}
+                                                    />
+                                                ))}
+                                            </div>
+                                        </div>
+                                        <p className="text-[14px] leading-relaxed text-gray-200">
+                                            {verdict.summary}
+                                        </p>
+                                        <div className="mt-3 flex items-center gap-3 text-[11px] font-mono text-gray-500">
+                                            <span>Entry: {verdict.entryPrice ?? '—'}</span>
+                                            <span>·</span>
+                                            <span>Report: {verdict.entryReportDate ?? '—'}</span>
+                                            {verdict.priceChangePct !== null && verdict.priceChangePct !== undefined && (
+                                                <>
+                                                    <span>·</span>
+                                                    <span className={cn(verdict.priceChangePct >= 0 ? 'text-[#34d399]' : 'text-[#fb7185]')}>
+                                                        Δ {verdict.priceChangePct}%
+                                                    </span>
+                                                </>
+                                            )}
+                                        </div>
+                                    </>
+                                ) : (
+                                    <p className="text-[13px] text-gray-500">Verdetto non disponibile.</p>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Performance toggle */}
+                        <div>
+                            <button
+                                data-testid="toggle-performance-btn"
+                                onClick={togglePerformance}
+                                className="w-full flex items-center justify-between gap-3 px-5 py-3.5 bg-[#0e0e14] hover:bg-[#14141c] border border-white/[0.07] rounded-2xl transition-colors"
+                            >
+                                <div className="flex items-center gap-2">
+                                    {showPerformance ? (
+                                        <EyeOff size={15} className="text-amber-400" />
+                                    ) : (
+                                        <Eye size={15} className="text-amber-400" />
+                                    )}
+                                    <span className="text-[13px] font-semibold uppercase tracking-[0.18em] text-gray-200">
+                                        Performance Verdetti Precedenti
+                                    </span>
+                                </div>
+                                <span className="text-[11px] text-gray-500 font-mono">
+                                    {showPerformance ? 'Nascondi' : 'Mostra'}
+                                </span>
+                            </button>
+                            {showPerformance && (
+                                <div
+                                    data-testid="performance-panel"
+                                    className="mt-3 bg-[#0e0e14] border border-white/[0.07] rounded-3xl p-5"
+                                >
+                                    {performanceLoading ? (
+                                        <div className="flex items-center gap-2 text-gray-500 text-[13px]">
+                                            <RefreshCw size={14} className="animate-spin text-amber-400/60" />
+                                            Calcolo performance…
+                                        </div>
+                                    ) : performance ? (
+                                        <>
+                                            <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
+                                                {[
+                                                    { label: 'Total', v: performance.totalVerdicts },
+                                                    { label: 'Valutati', v: performance.evaluated },
+                                                    { label: 'Win', v: performance.wins, color: 'text-[#34d399]' },
+                                                    { label: 'Loss', v: performance.losses, color: 'text-[#fb7185]' },
+                                                    {
+                                                        label: 'Win rate',
+                                                        v: performance.winRate !== null ? `${performance.winRate}%` : '—',
+                                                        color: 'text-amber-300',
+                                                    },
+                                                ].map((s) => (
+                                                    <div key={s.label} className="bg-black/30 border border-white/5 rounded-2xl p-3">
+                                                        <div className="text-[10px] tracking-widest uppercase text-gray-500 font-semibold mb-1">
+                                                            {s.label}
+                                                        </div>
+                                                        <div className={cn('font-mono text-[18px] font-semibold tnum', s.color)}>
+                                                            {s.v ?? '—'}
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                            <div className="flex items-center justify-between mb-2">
+                                                <span className="text-[11px] uppercase tracking-[0.22em] text-gray-500 font-semibold">
+                                                    Cumulative P/L %
+                                                </span>
+                                                <span
+                                                    className={cn(
+                                                        'font-mono text-[16px] font-semibold tnum',
+                                                        performance.cumulativePnlPct >= 0 ? 'text-[#34d399]' : 'text-[#fb7185]'
+                                                    )}
+                                                >
+                                                    {formatSigned(performance.cumulativePnlPct)}%
+                                                </span>
+                                            </div>
+                                            {performance.history.length > 0 ? (
+                                                <div className="overflow-x-auto">
+                                                    <table className="w-full text-[12.5px]">
+                                                        <thead>
+                                                            <tr className="text-[10px] uppercase tracking-[0.2em] text-gray-500 font-semibold border-b border-white/5">
+                                                                <th className="px-3 py-2 text-left">Data</th>
+                                                                <th className="px-3 py-2 text-left">Verdetto</th>
+                                                                <th className="px-3 py-2 text-right">Entry</th>
+                                                                <th className="px-3 py-2 text-right">Exit</th>
+                                                                <th className="px-3 py-2 text-right">P/L %</th>
+                                                                <th className="px-3 py-2 text-left">Outcome</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody className="font-mono">
+                                                            {performance.history.map((r, i) => (
+                                                                <tr
+                                                                    key={i}
+                                                                    className={cn(
+                                                                        'border-b border-white/[0.04]',
+                                                                        i % 2 === 1 && 'bg-white/[0.02]'
+                                                                    )}
+                                                                >
+                                                                    <td className="px-3 py-2 text-gray-200">{r.verdictDate}</td>
+                                                                    <td
+                                                                        className={cn(
+                                                                            'px-3 py-2 font-semibold',
+                                                                            r.verdict === 'LONG' && 'text-[#34d399]',
+                                                                            r.verdict === 'SHORT' && 'text-[#fb7185]',
+                                                                            r.verdict === 'WAIT' && 'text-amber-300'
+                                                                        )}
+                                                                    >
+                                                                        {r.verdict}
+                                                                    </td>
+                                                                    <td className="px-3 py-2 text-right text-gray-200">
+                                                                        {r.entryPrice ?? '—'}
+                                                                    </td>
+                                                                    <td className="px-3 py-2 text-right text-gray-200">
+                                                                        {r.exitPrice ?? '—'}
+                                                                    </td>
+                                                                    <td
+                                                                        className={cn(
+                                                                            'px-3 py-2 text-right font-semibold',
+                                                                            r.pnlPct === null && 'text-gray-500',
+                                                                            r.pnlPct > 0 && 'text-[#34d399]',
+                                                                            r.pnlPct < 0 && 'text-[#fb7185]'
+                                                                        )}
+                                                                    >
+                                                                        {r.pnlPct !== null ? `${formatSigned(r.pnlPct)}%` : '—'}
+                                                                    </td>
+                                                                    <td
+                                                                        className={cn(
+                                                                            'px-3 py-2 text-[10px] uppercase tracking-widest font-bold',
+                                                                            r.outcome === 'WIN' && 'text-[#34d399]',
+                                                                            r.outcome === 'LOSS' && 'text-[#fb7185]',
+                                                                            r.outcome === 'PENDING' && 'text-gray-500',
+                                                                            r.outcome === 'NEUTRAL' && 'text-amber-300'
+                                                                        )}
+                                                                    >
+                                                                        {r.outcome}
+                                                                    </td>
+                                                                </tr>
+                                                            ))}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            ) : (
+                                                <p className="text-[13px] text-gray-500 mt-3">
+                                                    Nessuno storico disponibile. Apri questo asset nei prossimi report per accumulare verdetti valutabili.
+                                                </p>
+                                            )}
+                                        </>
+                                    ) : (
+                                        <p className="text-[13px] text-gray-500">—</p>
+                                    )}
+                                </div>
+                            )}
                         </div>
 
                         {/* Chart */}

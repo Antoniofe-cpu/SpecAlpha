@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import List, Optional, Dict, Any
@@ -28,6 +29,11 @@ from cot_scraper import (
     ASSET_MAP,
     fetch_cot_history,
     fetch_cot_latest,
+)
+from macro_scraper import (
+    fetch_calendar_events,
+    filter_events_for_asset,
+    compact_events_text,
 )
 
 ROOT_DIR = Path(__file__).parent
@@ -106,6 +112,14 @@ async def generate_macro_insight(asset_id: str, snapshot: Dict[str, Any]) -> str
 
 CACHE_COLL = "cot_cache"
 HISTORY_COLL = "cot_history_cache"
+MACRO_COLL = "macro_cache"
+VERDICT_COLL = "verdict_cache"
+VERDICT_HISTORY_COLL = "verdict_history"
+CALENDAR_COLL = "calendar_cache"
+
+MACRO_TTL_HOURS = 72    # macro summary updates every 3 days
+VERDICT_TTL_HOURS = 24  # verdict updates daily
+CALENDAR_TTL_HOURS = 6  # calendar scrape cached 6h
 
 
 def _now() -> datetime:
@@ -274,7 +288,249 @@ async def refresh_all() -> Dict[str, Any]:
     """Invalidate cache for all assets (used by Saturday cron and manual refresh)."""
     await db[CACHE_COLL].delete_many({})
     await db[HISTORY_COLL].delete_many({})
+    await db[MACRO_COLL].delete_many({})
+    await db[VERDICT_COLL].delete_many({})
+    await db[CALENDAR_COLL].delete_many({})
     return {"status": "cache cleared", "time": _now().isoformat()}
+
+
+# ---------------------------------------------------------------------------
+# Macro Sentiment & Final Verdict endpoints
+# ---------------------------------------------------------------------------
+
+async def _get_calendar_events():
+    doc = await db[CALENDAR_COLL].find_one({"_id": "events"}, {"_id": 0})
+    if doc:
+        fetched_at = datetime.fromisoformat(doc["fetchedAt"])
+        if _now() - fetched_at < timedelta(hours=CALENDAR_TTL_HOURS):
+            return doc["events"]
+    events = await fetch_calendar_events()
+    await db[CALENDAR_COLL].update_one(
+        {"_id": "events"},
+        {"$set": {"events": events, "fetchedAt": _now().isoformat()}},
+        upsert=True,
+    )
+    return events
+
+
+async def _llm_generate(system: str, user: str, session: str, fallback: str) -> str:
+    if not EMERGENT_LLM_KEY:
+        return fallback
+    try:
+        from emergentintegrations.llm.chat import LlmChat, UserMessage  # type: ignore
+        chat = LlmChat(
+            api_key=EMERGENT_LLM_KEY, session_id=session, system_message=system,
+        ).with_model("gemini", "gemini-2.5-flash")
+        resp = await chat.send_message(UserMessage(text=user))
+        text = (resp or "").strip()
+        return text or fallback
+    except Exception as e:  # noqa: BLE001
+        logger.warning("llm_generate failed (%s): %s", session, e)
+        return fallback
+
+
+@api.get("/macro/{asset_id}")
+async def macro_sentiment(asset_id: str, refresh: bool = Query(False)) -> Dict[str, Any]:
+    asset_id = asset_id.upper()
+    if asset_id not in ASSET_MAP:
+        raise HTTPException(status_code=404, detail="Unknown asset")
+
+    if not refresh:
+        doc = await db[MACRO_COLL].find_one({"_id": asset_id}, {"_id": 0})
+        if doc:
+            fetched_at = datetime.fromisoformat(doc["fetchedAt"])
+            if _now() - fetched_at < timedelta(hours=MACRO_TTL_HOURS):
+                return doc["data"]
+
+    events_all = await _get_calendar_events()
+    relevant = filter_events_for_asset(events_all, asset_id)
+    events_text = compact_events_text(relevant, limit=10)
+
+    meta = ASSET_MAP[asset_id]
+    prompt = (
+        f"Asset: {asset_id} ({meta['name']}). Tipo: {meta['type']}.\n\n"
+        f"Eventi macro da tradingeconomics.com (ultimi 7 giorni + prossimi):\n{events_text}\n\n"
+        "TASK: Sintesi in italiano (2-3 frasi, max 260 caratteri) dello stato macroeconomico "
+        "rilevante per questo asset. Cita eventi chiave. Indica se il contesto è bullish, bearish o misto."
+    )
+    fallback = f"Nessuna news rilevante nel range settimanale. {len(relevant)} eventi macro tracciati da tradingeconomics."
+    summary = await _llm_generate(
+        "Sei un senior macro analyst. Stile Bloomberg tagliente. Niente intro, solo analisi.",
+        prompt, f"macro-{asset_id}", fallback,
+    )
+    data = {
+        "assetId": asset_id,
+        "summary": summary[:280],
+        "events": relevant[:8],
+        "eventCount": len(relevant),
+        "fetchedAt": _now().isoformat(),
+    }
+    await db[MACRO_COLL].update_one(
+        {"_id": asset_id}, {"$set": {"data": data, "fetchedAt": _now().isoformat()}}, upsert=True,
+    )
+    return data
+
+
+@api.get("/verdict/{asset_id}")
+async def final_verdict(asset_id: str, refresh: bool = Query(False)) -> Dict[str, Any]:
+    asset_id = asset_id.upper()
+    if asset_id not in ASSET_MAP:
+        raise HTTPException(status_code=404, detail="Unknown asset")
+
+    if not refresh:
+        doc = await db[VERDICT_COLL].find_one({"_id": asset_id}, {"_id": 0})
+        if doc:
+            fetched_at = datetime.fromisoformat(doc["fetchedAt"])
+            if _now() - fetched_at < timedelta(hours=VERDICT_TTL_HOURS):
+                return doc["data"]
+
+    cot_snap = await _fetch_snapshot(asset_id)
+    macro = await macro_sentiment(asset_id)
+    history = await cot_history(asset_id, limit=4)
+    # price change last week (from oldest to newest in last 4 reports -> approx 1 week)
+    price_change_pct = None
+    latest_price = history[0].get("price") if history else None
+    prev_price = history[1].get("price") if len(history) > 1 else None
+    if latest_price and prev_price and prev_price != 0:
+        price_change_pct = round(((latest_price - prev_price) / prev_price) * 100, 2)
+
+    context = (
+        f"Asset: {asset_id} ({ASSET_MAP[asset_id]['name']}).\n"
+        f"COT Non-Commercial: Net {cot_snap['netPosition']:+,}, Δ WoW {cot_snap['wowDelta']:+,}, "
+        f"Long {cot_snap['long']:,}, Short {cot_snap['short']:,}.\n"
+        f"COT Macro insight: {cot_snap.get('macro', '')}\n"
+        f"Macro sentiment settimanale: {macro['summary']}\n"
+        f"Prezzo ultimo: {latest_price or '—'} · Variazione WoW: "
+        f"{(str(price_change_pct) + '%') if price_change_pct is not None else 'N/A'}.\n\n"
+        "TASK: Restituisci SOLO JSON con questa struttura: "
+        '{"verdict":"LONG|SHORT|WAIT","confidence":1-5,"summary":"..."}. '
+        "Verdetto operazionale sintetico considerando (1) posizionamento istituzionale COT, "
+        "(2) contesto macro ultima settimana, (3) andamento prezzo. Summary max 200 caratteri in italiano."
+    )
+    fallback_json = '{"verdict":"WAIT","confidence":2,"summary":"Dati insufficienti per un verdetto solido."}'
+    raw = await _llm_generate(
+        "Sei un senior portfolio manager. Risponde solo in JSON valido, nessun commento extra.",
+        context, f"verdict-{asset_id}", fallback_json,
+    )
+    # Best-effort JSON extraction
+    import json as _json
+    parsed = None
+    try:
+        m = re.search(r"\{.*\}", raw, re.DOTALL)
+        parsed = _json.loads(m.group(0)) if m else None
+    except Exception:
+        parsed = None
+    if not parsed:
+        parsed = {"verdict": "WAIT", "confidence": 2, "summary": raw[:180]}
+
+    verdict = str(parsed.get("verdict", "WAIT")).upper()
+    if verdict not in ("LONG", "SHORT", "WAIT"):
+        verdict = "WAIT"
+    confidence = int(parsed.get("confidence", 2) or 2)
+    confidence = max(1, min(5, confidence))
+    summary = str(parsed.get("summary", ""))[:240]
+
+    data = {
+        "assetId": asset_id,
+        "verdict": verdict,
+        "confidence": confidence,
+        "summary": summary,
+        "entryPrice": latest_price,
+        "entryReportDate": history[0].get("date") if history else None,
+        "priceChangePct": price_change_pct,
+        "generatedAt": _now().isoformat(),
+    }
+    await db[VERDICT_COLL].update_one(
+        {"_id": asset_id}, {"$set": {"data": data, "fetchedAt": _now().isoformat()}}, upsert=True,
+    )
+    # Append to immutable verdict history for later P/L tracking
+    await db[VERDICT_HISTORY_COLL].insert_one({**data, "savedAt": _now().isoformat()})
+    return data
+
+
+@api.get("/verdict/{asset_id}/performance")
+async def verdict_performance(asset_id: str) -> Dict[str, Any]:
+    """
+    Evaluate past verdicts against subsequent price action.
+    For every stored verdict, finds the "exit price" from history (report closest to +7d)
+    and computes P/L (percent). Returns list + aggregate stats.
+    """
+    asset_id = asset_id.upper()
+    if asset_id not in ASSET_MAP:
+        raise HTTPException(status_code=404, detail="Unknown asset")
+
+    # Ensure history is fresh
+    hist = await cot_history(asset_id, limit=200)
+    price_by_date: Dict[str, float] = {
+        h["date"]: h.get("price") for h in hist if h.get("price") is not None
+    }
+
+    cursor = db[VERDICT_HISTORY_COLL].find(
+        {"assetId": asset_id}, {"_id": 0}
+    ).sort("savedAt", 1)
+    verdicts = await cursor.to_list(length=500)
+    results = []
+    wins = losses = skipped = 0
+    pnl_sum = 0.0
+
+    # Deduplicate by entryReportDate (keep first verdict per COT report)
+    seen_entries = set()
+    for v in verdicts:
+        entry_date = v.get("entryReportDate")
+        if not entry_date or entry_date in seen_entries:
+            continue
+        seen_entries.add(entry_date)
+        entry_price = v.get("entryPrice")
+        if entry_price is None:
+            continue
+        # Find the report immediately after the entry date
+        later = [d for d in sorted(price_by_date) if d > entry_date]
+        exit_date = later[0] if later else None
+        exit_price = price_by_date.get(exit_date) if exit_date else None
+        pnl_pct = None
+        outcome = "PENDING"
+        if exit_price is not None:
+            direction = 1 if v.get("verdict") == "LONG" else (-1 if v.get("verdict") == "SHORT" else 0)
+            if direction == 0:
+                outcome = "NEUTRAL"
+            else:
+                pnl_pct = round(((exit_price - entry_price) / entry_price) * 100 * direction, 2)
+                if pnl_pct > 0:
+                    wins += 1
+                    outcome = "WIN"
+                elif pnl_pct < 0:
+                    losses += 1
+                    outcome = "LOSS"
+                else:
+                    outcome = "FLAT"
+                pnl_sum += pnl_pct
+        else:
+            skipped += 1
+        results.append({
+            "verdictDate": entry_date,
+            "verdict": v.get("verdict"),
+            "confidence": v.get("confidence"),
+            "entryPrice": entry_price,
+            "exitDate": exit_date,
+            "exitPrice": exit_price,
+            "pnlPct": pnl_pct,
+            "outcome": outcome,
+            "summary": v.get("summary"),
+        })
+
+    total_evaluated = wins + losses
+    win_rate = round((wins / total_evaluated) * 100, 1) if total_evaluated else None
+    return {
+        "assetId": asset_id,
+        "totalVerdicts": len(results),
+        "evaluated": total_evaluated,
+        "wins": wins,
+        "losses": losses,
+        "pending": skipped,
+        "winRate": win_rate,
+        "cumulativePnlPct": round(pnl_sum, 2),
+        "history": list(reversed(results))[:30],
+    }
 
 
 app.include_router(api)
