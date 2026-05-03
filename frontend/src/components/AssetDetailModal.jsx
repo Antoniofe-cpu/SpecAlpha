@@ -35,6 +35,7 @@ import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 import { fetchHistory, fetchMacro, fetchVerdict, fetchVerdictPerformance } from '../api';
 import { cn, formatNumber, formatSigned, getTrendAnalysis, TONE_CLASSES } from '../utils';
+import { useT } from '../i18n';
 
 const SERIES = [
     { key: 'netPosition', label: 'Net', color: '#f59e0b', gradId: 'gNet', yAxis: 'left', fmt: 'k' },
@@ -44,6 +45,7 @@ const SERIES = [
 ];
 
 export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleFav }) {
+    const { t } = useT();
     const [history, setHistory] = useState([]);
     const [loading, setLoading] = useState(false);
     const [exporting, setExporting] = useState(false);
@@ -144,23 +146,57 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
     const handleExport = async () => {
         if (!captureRef.current || exporting) return;
         setExporting(true);
+        const node = captureRef.current;
+        // Find the inner scrollable container (.flex-1.overflow-y-auto)
+        const scrollEl = node.querySelector('.flex-1.overflow-y-auto') || null;
+        // Snapshot original styles
+        const orig = {
+            maxHeight: node.style.maxHeight,
+            height: node.style.height,
+            overflow: node.style.overflow,
+            borderRadius: node.style.borderRadius,
+            scrollOverflow: scrollEl ? scrollEl.style.overflow : '',
+            scrollMaxHeight: scrollEl ? scrollEl.style.maxHeight : '',
+            scrollFlex: scrollEl ? scrollEl.style.flex : '',
+        };
         try {
             // Auto-expand performance panel for full snapshot
             const wasOpen = showPerformance;
             if (!wasOpen) {
                 setShowPerformance(true);
                 if (!performance) await loadPerformance();
-                // wait a tick for the DOM to render
-                await new Promise((r) => setTimeout(r, 250));
             }
-            const node = captureRef.current;
+            // Wait for render + transitions
+            await new Promise((r) => setTimeout(r, 350));
+
+            // Inflate modal to its natural full height so html2canvas captures everything
+            node.style.maxHeight = 'none';
+            node.style.height = 'auto';
+            node.style.overflow = 'visible';
+            node.style.borderRadius = '0px';
+            if (scrollEl) {
+                scrollEl.style.overflow = 'visible';
+                scrollEl.style.maxHeight = 'none';
+                scrollEl.style.flex = 'none';
+            }
+            // Force layout flush
+            await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+            const fullHeight = node.scrollHeight;
+            const fullWidth = node.scrollWidth;
             const canvas = await html2canvas(node, {
                 backgroundColor: '#0a0a0d',
                 scale: 2,
                 useCORS: true,
-                windowWidth: node.scrollWidth,
-                windowHeight: node.scrollHeight,
+                logging: false,
+                width: fullWidth,
+                height: fullHeight,
+                windowWidth: fullWidth,
+                windowHeight: fullHeight,
+                scrollX: 0,
+                scrollY: 0,
             });
+
             const imgData = canvas.toDataURL('image/png');
             // Fit canvas into A4 portrait, multi-page if needed
             const pdf = new jsPDF('p', 'mm', 'a4');
@@ -183,6 +219,16 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
         } catch (e) {
             console.error('PDF export failed', e);
         } finally {
+            // Restore styles
+            node.style.maxHeight = orig.maxHeight;
+            node.style.height = orig.height;
+            node.style.overflow = orig.overflow;
+            node.style.borderRadius = orig.borderRadius;
+            if (scrollEl) {
+                scrollEl.style.overflow = orig.scrollOverflow;
+                scrollEl.style.maxHeight = orig.scrollMaxHeight;
+                scrollEl.style.flex = orig.scrollFlex;
+            }
             setExporting(false);
         }
     };
@@ -263,7 +309,7 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                 <div className="flex items-center gap-2 mt-2">
                                     <Calendar size={13} className="text-gray-500" />
                                     <span className="text-[13px] font-mono text-gray-400">
-                                        Report {snapshot.reportDate}
+                                        {t('modal.report')} {snapshot.reportDate}
                                     </span>
                                 </div>
                             </div>
@@ -280,7 +326,7 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                 ) : (
                                     <Download size={14} />
                                 )}
-                                {exporting ? 'Export…' : 'PDF'}
+                                {exporting ? t('modal.exporting') : t('modal.pdf')}
                             </button>
                             <button
                                 data-testid="modal-close-btn"
@@ -298,19 +344,19 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                             <div className="bg-[#0e0e14] border border-white/[0.07] rounded-3xl p-5">
                                 <div className="text-[11px] tracking-[0.28em] uppercase text-gray-400 font-semibold mb-2">
-                                    Sentiment Globale
+                                    {t('modal.sentiment')}
                                 </div>
                                 <div className={cn('font-display text-2xl font-bold mb-1', TONE_CLASSES[trend.tone])}>
-                                    {trend.signal}
+                                    {t(trend.signalKey)}
                                 </div>
                                 <div className="text-[13px] text-gray-400">
-                                    Long-term: <span className="text-gray-200 font-mono">{trend.longTerm}</span> · Short-term:{' '}
+                                    {t('modal.long_term')} <span className="text-gray-200 font-mono">{trend.longTerm}</span> · {t('modal.short_term')}{' '}
                                     <span className="text-gray-200 font-mono">{trend.shortTerm}</span>
                                 </div>
                             </div>
                             <div className="bg-[#0e0e14] border border-white/[0.07] rounded-3xl p-5">
                                 <div className="text-[11px] tracking-[0.28em] uppercase text-gray-400 font-semibold mb-2">
-                                    Net Position
+                                    {t('modal.net_position')}
                                 </div>
                                 <div className="font-mono text-3xl font-semibold text-white tnum mb-2">
                                     {formatNumber(snapshot.netPosition)}
@@ -335,7 +381,7 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                 <div className="flex items-center gap-2 mb-2">
                                     <Activity size={12} className="text-amber-400" />
                                     <span className="text-[11px] tracking-[0.28em] uppercase text-amber-300 font-bold">
-                                        Macro Intelligence
+                                        {t('modal.macro_intel')}
                                     </span>
                                 </div>
                                 <p className="text-[14px] leading-relaxed text-gray-200 italic">"{snapshot.macro}"</p>
@@ -348,16 +394,16 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                 <div className="flex items-center gap-2 mb-3">
                                     <Newspaper size={14} className="text-sky-400" />
                                     <span className="text-[11px] tracking-[0.28em] uppercase text-sky-300 font-bold">
-                                        Macro Sentiment · Last 7 days
+                                        {t('modal.macro_sentiment')}
                                     </span>
                                     <span className="ml-auto text-[10px] text-gray-500 font-mono">
-                                        {macro?.eventCount ?? '—'} events
+                                        {macro?.eventCount ?? '—'} {t('modal.events')}
                                     </span>
                                 </div>
                                 {macroLoading ? (
                                     <div className="flex items-center gap-2 text-gray-500 text-[13px]">
                                         <RefreshCw size={14} className="animate-spin text-sky-400/60" />
-                                        Analisi macro da tradingeconomics…
+                                        {t('modal.macro_loading')}
                                     </div>
                                 ) : (
                                     <>
@@ -396,16 +442,16 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                 <div className="flex items-center gap-2 mb-3">
                                     <TargetIcon size={14} className="text-amber-400" />
                                     <span className="text-[11px] tracking-[0.28em] uppercase text-amber-300 font-bold">
-                                        Final Verdict
+                                        {t('modal.final_verdict')}
                                     </span>
                                     <span className="ml-auto text-[10px] text-gray-500 font-mono">
-                                        conf {verdict?.confidence ?? '—'}/5
+                                        {t('modal.confidence')} {verdict?.confidence ?? '—'}/5
                                     </span>
                                 </div>
                                 {verdictLoading ? (
                                     <div className="flex items-center gap-2 text-gray-500 text-[13px]">
                                         <RefreshCw size={14} className="animate-spin text-amber-400/60" />
-                                        Generazione verdetto…
+                                        {t('modal.verdict_loading')}
                                     </div>
                                 ) : verdict ? (
                                     <>
@@ -439,9 +485,9 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                             {verdict.summary}
                                         </p>
                                         <div className="mt-3 flex items-center gap-3 text-[11px] font-mono text-gray-500">
-                                            <span>Entry: {verdict.entryPrice ?? '—'}</span>
+                                            <span>{t('modal.entry')} {verdict.entryPrice ?? '—'}</span>
                                             <span>·</span>
-                                            <span>Report: {verdict.entryReportDate ?? '—'}</span>
+                                            <span>{t('modal.report_label')} {verdict.entryReportDate ?? '—'}</span>
                                             {verdict.priceChangePct !== null && verdict.priceChangePct !== undefined && (
                                                 <>
                                                     <span>·</span>
@@ -453,7 +499,7 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                         </div>
                                     </>
                                 ) : (
-                                    <p className="text-[13px] text-gray-500">Verdetto non disponibile.</p>
+                                    <p className="text-[13px] text-gray-500">{t('modal.verdict_unavailable')}</p>
                                 )}
                             </div>
                         </div>
@@ -465,11 +511,11 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                     <div className="flex items-center gap-2">
                                         <BarChart3 size={16} className="text-amber-400" />
                                         <h3 className="font-display text-lg font-bold text-white">
-                                            Grafico Storico
+                                            {t('modal.chart_title')}
                                         </h3>
                                     </div>
                                     <p className="text-[12px] tracking-[0.25em] uppercase text-gray-500 mt-1 font-semibold">
-                                        Net · Long · Short · Prezzo Non-Commercial
+                                        {t('modal.chart_subtitle')}
                                     </p>
                                 </div>
                                 <div className="flex items-center gap-1 bg-black/30 rounded-2xl border border-white/10 p-1.5">
@@ -553,7 +599,7 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                             <div className="h-[400px]">
                                 {loading ? (
                                     <div className="h-full flex items-center justify-center text-gray-500 text-[13px]">
-                                        <RefreshCw size={18} className="animate-spin mr-2 text-amber-400/60" /> Caricamento serie storica…
+                                        <RefreshCw size={18} className="animate-spin mr-2 text-amber-400/60" /> {t('modal.chart_loading')}
                                     </div>
                                 ) : chartData.length > 1 ? (
                                     <ResponsiveContainer width="100%" height="100%">
@@ -652,7 +698,7 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                 ) : (
                                     <div className="h-full flex flex-col items-center justify-center text-gray-600 gap-2">
                                         <AlertTriangle className="text-orange-500/40" size={20} />
-                                        <span className="text-[11px] uppercase tracking-widest">Storico non disponibile</span>
+                                        <span className="text-[11px] uppercase tracking-widest">{t('modal.chart_unavailable')}</span>
                                     </div>
                                 )}
                             </div>
@@ -661,9 +707,9 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                         {/* WoW delta bar chart + table */}
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                             <div className="bg-[#0e0e14] border border-white/[0.07] rounded-3xl p-6">
-                                <h3 className="font-display text-lg font-bold text-white mb-1">Δ WoW Recente</h3>
+                                <h3 className="font-display text-lg font-bold text-white mb-1">{t('modal.delta_recent')}</h3>
                                 <p className="text-[12px] tracking-[0.25em] uppercase text-gray-500 font-semibold mb-4">
-                                    Variazione Settimanale Net Position
+                                    {t('modal.delta_subtitle')}
                                 </p>
                                 <div className="h-[240px]">
                                     {chartData.length > 1 ? (
@@ -712,20 +758,20 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
 
                             <div className="bg-[#0e0e14] border border-white/[0.07] rounded-3xl overflow-hidden">
                                 <div className="px-6 pt-6 pb-3">
-                                    <h3 className="font-display text-lg font-bold text-white mb-1">Tabella Storica</h3>
+                                    <h3 className="font-display text-lg font-bold text-white mb-1">{t('modal.history_table')}</h3>
                                     <p className="text-[12px] tracking-[0.25em] uppercase text-gray-500 font-semibold">
-                                        Ultimi 8 Report Pubblicati
+                                        {t('modal.history_subtitle')}
                                     </p>
                                 </div>
                                 <div className="overflow-x-auto">
                                     <table className="w-full text-[13px]" data-testid="history-table">
                                         <thead>
                                             <tr className="text-[11px] uppercase tracking-[0.2em] text-gray-500 font-semibold border-b border-white/5">
-                                                <th className="px-4 py-3 text-left">Date</th>
-                                                <th className="px-4 py-3 text-right">Long</th>
-                                                <th className="px-4 py-3 text-right">Short</th>
-                                                <th className="px-4 py-3 text-right">Net</th>
-                                                <th className="px-4 py-3 text-right">Δ WoW</th>
+                                                <th className="px-4 py-3 text-left">{t('modal.col.date')}</th>
+                                                <th className="px-4 py-3 text-right">{t('modal.col.long')}</th>
+                                                <th className="px-4 py-3 text-right">{t('modal.col.short')}</th>
+                                                <th className="px-4 py-3 text-right">{t('modal.col.net')}</th>
+                                                <th className="px-4 py-3 text-right">{t('modal.col.delta')}</th>
                                             </tr>
                                         </thead>
                                         <tbody className="font-mono">
@@ -760,11 +806,11 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                         <Eye size={15} className="text-amber-400" />
                                     )}
                                     <span className="text-[13px] font-semibold uppercase tracking-[0.18em] text-gray-200">
-                                        Performance Verdetti Precedenti
+                                        {t('modal.perf_title')}
                                     </span>
                                 </div>
                                 <span className="text-[11px] text-gray-500 font-mono">
-                                    {showPerformance ? 'Nascondi' : 'Mostra'}
+                                    {showPerformance ? t('modal.hide') : t('modal.show')}
                                 </span>
                             </button>
                             {showPerformance && (
@@ -772,25 +818,27 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                     data-testid="performance-panel"
                                     className="mt-3 bg-[#0e0e14] border border-white/[0.07] rounded-3xl p-5"
                                 >
-                                    <p className="text-[12.5px] text-gray-500 mb-4 leading-relaxed">
-                                        Logica: entry = close di lunedì · exit = close di venerdì della stessa settimana
-                                        (prezzi daily da Yahoo Finance).
+                                    <p className="text-[12.5px] text-gray-500 mb-2 leading-relaxed">
+                                        {t('modal.perf_logic')}
+                                    </p>
+                                    <p className="text-[12px] text-amber-300/70 mb-4 leading-relaxed bg-amber-500/[0.04] border border-amber-500/15 rounded-xl px-3 py-2">
+                                        {t('modal.perf_synth_note')}
                                     </p>
                                     {performanceLoading ? (
                                         <div className="flex items-center gap-2 text-gray-500 text-[13px]">
                                             <RefreshCw size={14} className="animate-spin text-amber-400/60" />
-                                            Calcolo performance…
+                                            {t('modal.perf_loading')}
                                         </div>
                                     ) : performance ? (
                                         <>
                                             <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
                                                 {[
-                                                    { label: 'Total', v: performance.totalVerdicts },
-                                                    { label: 'Valutati', v: performance.evaluated },
-                                                    { label: 'Win', v: performance.wins, color: 'text-[#34d399]' },
-                                                    { label: 'Loss', v: performance.losses, color: 'text-[#fb7185]' },
+                                                    { label: t('modal.perf.total'), v: performance.totalVerdicts },
+                                                    { label: t('modal.perf.evaluated'), v: performance.evaluated },
+                                                    { label: t('modal.perf.win'), v: performance.wins, color: 'text-[#34d399]' },
+                                                    { label: t('modal.perf.loss'), v: performance.losses, color: 'text-[#fb7185]' },
                                                     {
-                                                        label: 'Win rate',
+                                                        label: t('modal.perf.winrate'),
                                                         v: performance.winRate !== null ? `${performance.winRate}%` : '—',
                                                         color: 'text-amber-300',
                                                     },
@@ -807,7 +855,7 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                             </div>
                                             <div className="flex items-center justify-between mb-2">
                                                 <span className="text-[11px] uppercase tracking-[0.22em] text-gray-500 font-semibold">
-                                                    Cumulative P/L %
+                                                    {t('modal.perf.cumulative')}
                                                 </span>
                                                 <span
                                                     className={cn(
@@ -839,7 +887,7 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                                             >
                                                                 <div className="flex items-center justify-between mb-2">
                                                                     <span className="text-[11px] uppercase tracking-[0.22em] text-gray-500 font-semibold">
-                                                                        Equity Curve · ultimi {showCurve.length} verdetti
+                                                                        {t('modal.perf.equity_label', showCurve.length)}
                                                                     </span>
                                                                     <span
                                                                         className={cn(
@@ -903,20 +951,20 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                                     })()}
 
                                                     <div className="text-[11px] uppercase tracking-[0.22em] text-gray-500 font-semibold mb-2">
-                                                        Ultimi 5 verdetti
+                                                        {t('modal.perf.last5')}
                                                     </div>
                                                     <div className="overflow-x-auto">
                                                     <table className="w-full text-[12.5px]">
                                                         <thead>
                                                             <tr className="text-[10px] uppercase tracking-[0.2em] text-gray-500 font-semibold border-b border-white/5">
-                                                                <th className="px-2 py-2 text-left">Report</th>
-                                                                <th className="px-2 py-2 text-left">Verdetto</th>
-                                                                <th className="px-2 py-2 text-left">Entry (Lun)</th>
-                                                                <th className="px-2 py-2 text-right">Price</th>
-                                                                <th className="px-2 py-2 text-left">Exit (Ven)</th>
-                                                                <th className="px-2 py-2 text-right">Price</th>
-                                                                <th className="px-2 py-2 text-right">P/L %</th>
-                                                                <th className="px-2 py-2 text-left">Outcome</th>
+                                                                <th className="px-2 py-2 text-left">{t('modal.perf.col.report')}</th>
+                                                                <th className="px-2 py-2 text-left">{t('modal.perf.col.verdict')}</th>
+                                                                <th className="px-2 py-2 text-left">{t('modal.perf.col.entry_date')}</th>
+                                                                <th className="px-2 py-2 text-right">{t('modal.perf.col.entry_price')}</th>
+                                                                <th className="px-2 py-2 text-left">{t('modal.perf.col.exit_date')}</th>
+                                                                <th className="px-2 py-2 text-right">{t('modal.perf.col.exit_price')}</th>
+                                                                <th className="px-2 py-2 text-right">{t('modal.perf.col.pnl')}</th>
+                                                                <th className="px-2 py-2 text-left">{t('modal.perf.col.outcome')}</th>
                                                             </tr>
                                                         </thead>
                                                         <tbody className="font-mono">
@@ -980,7 +1028,7 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                                 </>
                                             ) : (
                                                 <p className="text-[13px] text-gray-500 mt-3">
-                                                    Nessuno storico disponibile. Apri questo asset nei prossimi report per accumulare verdetti valutabili.
+                                                    {t('modal.perf.empty')}
                                                 </p>
                                             )}
                                         </>

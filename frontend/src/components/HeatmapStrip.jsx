@@ -1,9 +1,11 @@
 import React from 'react';
 import { Flame } from 'lucide-react';
 import { cn, formatNumber, formatSigned } from '../utils';
+import { useT } from '../i18n';
 
 // Heatmap of all assets sorted by net position; only displays assets passed in.
 export default function HeatmapStrip({ assets, onPick }) {
+    const { t } = useT();
     if (!assets?.length) return null;
     const max = Math.max(...assets.map((a) => Math.abs(a.netPosition || 0)), 1);
     const sorted = [...assets].sort((a, b) => (b.netPosition || 0) - (a.netPosition || 0));
@@ -20,14 +22,13 @@ export default function HeatmapStrip({ assets, onPick }) {
                 </div>
                 <div>
                     <div className="text-[12px] tracking-[0.3em] uppercase font-bold text-amber-400 mb-1">
-                        Mappa dei Mercati
+                        {t('heat.kicker')}
                     </div>
                     <h2 className="font-display text-2xl font-bold text-white">
-                        Heatmap Net Position Globale
+                        {t('heat.title')}
                     </h2>
                     <p className="text-[14px] text-gray-400 mt-1.5 max-w-xl">
-                        Quadro d'insieme di tutti gli strumenti monitorati: intensità del colore
-                        proporzionale alla forza del posizionamento istituzionale.
+                        {t('heat.body')}
                     </p>
                 </div>
             </div>

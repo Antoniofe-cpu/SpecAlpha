@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom';
 import { motion } from 'framer-motion';
 import { Maximize2, Activity, RefreshCw, Star, Info } from 'lucide-react';
 import { cn, formatNumber, formatSigned, getTrendAnalysis } from '../utils';
+import { useT } from '../i18n';
 
 const tonePill = {
     bullish: 'border-[#10b981]/30 text-[#34d399] bg-[#10b981]/10',
@@ -57,16 +58,13 @@ function InfoTooltip({ text, label }) {
 }
 
 export default function AssetCard({ asset, isLoading, isFavorite, onClick, onToggleFav, index = 0 }) {
+    const { t } = useT();
     const trend = getTrendAnalysis(asset);
     const total = (asset?.long || 0) + (asset?.short || 0) || 1;
     const longRatio = ((asset?.long || 0) / total) * 100;
     const oiText = (
         <span>
-            <strong className="text-amber-300">OI Share</strong> = % di Open Interest detenuto
-            dai grandi speculatori (Long + Short Non-Commercial). Più alto è il valore, più il
-            mercato è guidato dai flussi istituzionali e meno dai commerciali. Sopra il 50% indica
-            dominanza speculativa: trend più direzionale ma anche più sensibile a unwinding e
-            squeeze.
+            <strong className="text-amber-300">{t('card.oi_share')}</strong> — {t('card.oi_tooltip_html')}
         </span>
     );
 
@@ -121,14 +119,14 @@ export default function AssetCard({ asset, isLoading, isFavorite, onClick, onTog
                     tonePill[trend.tone]
                 )}
             >
-                {trend.signal}
+                {t(trend.signalKey)}
             </div>
 
             {/* Net Position + Delta */}
             <div className="grid grid-cols-2 gap-4 mb-6">
                 <div>
                     <div className="text-[11px] uppercase tracking-[0.22em] text-gray-500 font-semibold mb-1.5">
-                        Net Position
+                        {t('modal.net_position')}
                     </div>
                     <div className="font-mono text-[28px] font-semibold text-white tnum tracking-tight leading-none">
                         {formatNumber(asset.netPosition)}
@@ -206,20 +204,20 @@ export default function AssetCard({ asset, isLoading, isFavorite, onClick, onTog
                 <div className="flex items-center gap-2 mb-1.5">
                     <Activity size={12} className="text-amber-400" />
                     <span className="text-[11px] font-bold uppercase tracking-[0.22em] text-amber-300">
-                        Institutional Analysis
+                        {t('card.analysis')}
                     </span>
                     {isLoading && <RefreshCw size={11} className="animate-spin text-amber-400/60 ml-auto" />}
                 </div>
                 <p className={cn('text-[13.5px] leading-relaxed text-gray-200 italic', isLoading && 'opacity-40')}>
-                    {asset.macro || 'Sincronizzazione flussi…'}
+                    {asset.macro || t('card.sync_flows')}
                 </p>
             </div>
 
             <div className="flex items-center justify-between border-t border-white/[0.06] pt-5">
                 <div>
                     <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-[0.22em] text-gray-500 font-semibold mb-0.5">
-                        OI Share
-                        <InfoTooltip text={oiText} label="Cos'è OI Share" />
+                        {t('card.oi_share')}
+                        <InfoTooltip text={oiText} label={t('card.oi_tooltip_label')} />
                     </div>
                     <div className="font-mono text-[16px] text-white tnum font-semibold">
                         {asset.openInterestShare ?? '—'}%
@@ -227,7 +225,7 @@ export default function AssetCard({ asset, isLoading, isFavorite, onClick, onTog
                 </div>
                 <div className="text-right">
                     <div className="text-[11px] uppercase tracking-[0.22em] text-gray-500 font-semibold mb-0.5">
-                        Intensity
+                        {t('card.intensity')}
                     </div>
                     <div className="font-mono text-[16px] text-white tnum font-semibold">
                         {asset.intensityIndex ?? '—'}/100

@@ -9,6 +9,7 @@ import {
     AlertCircle,
     Activity,
     Star,
+    Globe,
 } from 'lucide-react';
 import './App.css';
 import AssetCard from './components/AssetCard';
@@ -18,6 +19,7 @@ import HeatmapStrip from './components/HeatmapStrip';
 import CurrencyStrengthIndex from './components/CurrencyStrengthIndex';
 import { fetchAssets, fetchBulk, refreshCache } from './api';
 import { cn, nextSaturdayUTC } from './utils';
+import { useT } from './i18n';
 
 const FAV_KEY = 'spec-alpha-fav';
 
@@ -34,6 +36,7 @@ function saveFavorites(favs) {
 }
 
 function CountdownLabel() {
+    const { t } = useT();
     const [now, setNow] = useState(new Date());
     useEffect(() => {
         const id = setInterval(() => setNow(new Date()), 60000);
@@ -45,12 +48,48 @@ function CountdownLabel() {
     const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
     return (
         <span className="font-mono text-[10px] text-gray-500">
-            Next sync: <span className="text-amber-400">{days}d {hours}h</span>
+            {t('app.next_sync')} <span className="text-amber-400">{days}d {hours}h</span>
         </span>
     );
 }
 
+function LangToggle() {
+    const { lang, setLang } = useT();
+    return (
+        <div
+            data-testid="lang-toggle"
+            className="flex items-center bg-black/30 border border-white/10 rounded-2xl p-1"
+        >
+            <button
+                data-testid="lang-it"
+                onClick={() => setLang('it')}
+                className={cn(
+                    'px-2.5 py-1.5 text-[11px] font-mono font-bold uppercase tracking-[0.2em] rounded-xl transition-colors flex items-center gap-1.5',
+                    lang === 'it' ? 'bg-amber-500 text-black' : 'text-gray-400 hover:text-white'
+                )}
+                aria-label="Italiano"
+            >
+                {lang === 'it' && <Globe size={11} />}
+                IT
+            </button>
+            <button
+                data-testid="lang-en"
+                onClick={() => setLang('en')}
+                className={cn(
+                    'px-2.5 py-1.5 text-[11px] font-mono font-bold uppercase tracking-[0.2em] rounded-xl transition-colors flex items-center gap-1.5',
+                    lang === 'en' ? 'bg-amber-500 text-black' : 'text-gray-400 hover:text-white'
+                )}
+                aria-label="English"
+            >
+                {lang === 'en' && <Globe size={11} />}
+                EN
+            </button>
+        </div>
+    );
+}
+
 export default function App() {
+    const { t } = useT();
     const [meta, setMeta] = useState([]);
     const [snapshots, setSnapshots] = useState([]);
     const [allCurrencies, setAllCurrencies] = useState([]);
@@ -82,7 +121,7 @@ export default function App() {
             }
         } catch (e) {
             console.error(e);
-            setError('Errore nel caricamento dati. Riprova fra qualche istante.');
+            setError(t('app.error'));
         } finally {
             setLoading(false);
             setRefreshing(false);
@@ -166,7 +205,7 @@ export default function App() {
                                 Speculative <span className="text-amber-400">Alpha</span>
                             </h1>
                             <p className="text-[12px] tracking-[0.3em] uppercase text-gray-400 font-semibold mt-0.5">
-                                Institutional COT Intelligence
+                                {t('app.tagline')}
                             </p>
                         </div>
                     </div>
@@ -180,6 +219,7 @@ export default function App() {
                             </div>
                             <CountdownLabel />
                         </div>
+                        <LangToggle />
                         <button
                             data-testid="refresh-btn"
                             onClick={handleRefresh}
@@ -187,7 +227,7 @@ export default function App() {
                             className="p-2.5 sm:px-4 sm:py-2.5 rounded-2xl bg-white/[0.06] hover:bg-amber-500/15 hover:border-amber-500/40 border border-white/10 text-[13px] font-semibold uppercase tracking-[0.18em] flex items-center gap-2 transition-colors"
                         >
                             <RefreshCw size={15} className={cn(refreshing && 'animate-spin')} />
-                            <span className="hidden sm:inline">Refresh</span>
+                            <span className="hidden sm:inline">{t('app.refresh')}</span>
                         </button>
                         <button
                             data-testid="help-btn"
@@ -195,7 +235,7 @@ export default function App() {
                             className="p-2.5 sm:px-4 sm:py-2.5 rounded-2xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 text-[13px] font-semibold uppercase tracking-[0.18em] flex items-center gap-2 transition-colors"
                         >
                             <HelpCircle size={15} />
-                            <span className="hidden sm:inline">Guide</span>
+                            <span className="hidden sm:inline">{t('app.guide')}</span>
                         </button>
                     </div>
                 </div>
@@ -206,10 +246,10 @@ export default function App() {
                 <div className="flex flex-wrap items-center justify-between gap-5">
                     <div>
                         <div className="text-[12px] tracking-[0.3em] uppercase font-bold text-amber-400 mb-2">
-                            Mercati Istituzionali
+                            {t('app.section.kicker')}
                         </div>
                         <h2 className="font-display text-3xl sm:text-[34px] font-bold text-white tracking-tight leading-none">
-                            Posizionamento Non-Commercial
+                            {t('app.section.title')}
                         </h2>
                     </div>
                     <div className="flex items-center gap-2">
@@ -222,7 +262,7 @@ export default function App() {
                                     scope === 'core' ? 'bg-amber-500 text-black' : 'text-gray-300 hover:text-white'
                                 )}
                             >
-                                <LayoutGrid size={13} /> Core
+                                <LayoutGrid size={13} /> {t('app.scope.core')}
                             </button>
                             <button
                                 data-testid="scope-all"
@@ -232,7 +272,7 @@ export default function App() {
                                     scope === 'all' ? 'bg-amber-500 text-black' : 'text-gray-300 hover:text-white'
                                 )}
                             >
-                                <Layers size={13} /> All ({meta.length})
+                                <Layers size={13} /> {t('app.scope.all')} ({meta.length})
                             </button>
                         </div>
                         <button
@@ -245,7 +285,7 @@ export default function App() {
                                     : 'bg-white/[0.06] border-white/10 text-gray-300 hover:text-white'
                             )}
                         >
-                            <Star size={13} fill={showFavOnly ? '#fcd34d' : 'transparent'} /> Favorites
+                            <Star size={13} fill={showFavOnly ? '#fcd34d' : 'transparent'} /> {t('app.favorites')}
                         </button>
                     </div>
                 </div>
@@ -271,7 +311,7 @@ export default function App() {
                         </div>
                     ) : visibleAssets.length === 0 ? (
                         <div className="text-center py-14 text-gray-400 text-[15px]">
-                            {showFavOnly ? 'Nessun asset preferito. Clicca sulla stella per aggiungerne.' : 'Nessun dato disponibile.'}
+                            {showFavOnly ? t('app.empty.fav') : t('app.empty.data')}
                         </div>
                     ) : (
                         <div
@@ -304,7 +344,7 @@ export default function App() {
                                     </div>
                                     <div className="flex-1 flex items-center justify-center gap-2 text-gray-500 text-[12px] uppercase tracking-widest font-semibold">
                                         <RefreshCw size={14} className="animate-spin text-amber-400/40" />
-                                        Sync flussi…
+                                        {t('app.pending.sync')}
                                     </div>
                                 </div>
                             ))}
@@ -323,11 +363,10 @@ export default function App() {
                 {/* Footer */}
                 <footer className="pt-10 pb-4 border-t border-white/5">
                     <p className="text-[12px] tracking-[0.3em] uppercase font-bold text-gray-500 mb-1.5">
-                        Data Source · Tradingster (CFTC Legacy Futures)
+                        {t('app.footer.title')}
                     </p>
                     <p className="text-[13px] text-gray-500">
-                        Tutti i dati sono estratti dai report ufficiali CFTC Commitment of Traders.
-                        Aggiornamento automatico ogni sabato.
+                        {t('app.footer.body')}
                     </p>
                 </footer>
             </main>

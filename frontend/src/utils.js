@@ -20,25 +20,30 @@ export function formatSigned(n) {
 
 export function getTrendAnalysis(asset) {
     if (!asset || asset.netPosition === undefined)
-        return { signal: 'N/A', tone: 'neutral', shortTerm: 'N/A', longTerm: 'N/A' };
+        return { signal: 'N/A', tone: 'neutral', signalKey: 'trend.neutral', shortTerm: 'N/A', longTerm: 'N/A' };
     const shortTerm = (asset.wowDelta || 0) > 0 ? 'LONG' : 'SHORT';
     const longTerm = (asset.netPosition || 0) > 0 ? 'LONG' : 'SHORT';
-    let signal = 'NEUTRO';
+    let signal = 'NEUTRAL';
+    let signalKey = 'trend.neutral';
     let tone = 'neutral';
     if (asset.wowDelta > 0 && asset.netPosition > 0) {
         signal = 'LONG';
+        signalKey = 'trend.bullish';
         tone = 'bullish';
     } else if (asset.wowDelta < 0 && asset.netPosition < 0) {
         signal = 'SHORT';
+        signalKey = 'trend.bearish';
         tone = 'bearish';
     } else if (asset.wowDelta > 0 && asset.netPosition < 0) {
         signal = 'ACCUMULO';
+        signalKey = 'trend.accumulation';
         tone = 'accumulation';
     } else if (asset.wowDelta < 0 && asset.netPosition > 0) {
         signal = 'DISTRIBUZIONE';
+        signalKey = 'trend.distribution';
         tone = 'distribution';
     }
-    return { shortTerm, longTerm, signal, tone };
+    return { shortTerm, longTerm, signal, signalKey, tone };
 }
 
 export const TONE_CLASSES = {
