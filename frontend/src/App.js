@@ -53,12 +53,15 @@ function CountdownLabel() {
     );
 }
 
-function LangToggle() {
+function LangToggle({ inline = false }) {
     const { lang, setLang } = useT();
     return (
         <div
             data-testid="lang-toggle"
-            className="fixed bottom-4 left-4 z-[105] flex items-center bg-[#0a0a0d]/95 border border-white/10 rounded-2xl p-1 shadow-[0_8px_28px_rgba(0,0,0,0.6)] backdrop-blur-xl"
+            className={cn(
+                'flex items-center bg-[#0a0a0d]/95 border border-white/10 rounded-2xl p-1 shadow-[0_4px_16px_rgba(0,0,0,0.4)] backdrop-blur-xl',
+                inline && 'self-start'
+            )}
         >
             <button
                 data-testid="lang-it"
@@ -150,13 +153,16 @@ export default function App() {
     }, [scope]);
 
     // Re-fetch all data when language changes so AI insights come back in the new language.
-    // Use a ref to skip the very first render (initial mount already triggers loadData above).
     const langInitRef = React.useRef(true);
     useEffect(() => {
         if (langInitRef.current) {
             langInitRef.current = false;
             return;
         }
+        // Clear snapshots so the user sees skeletons while AI re-generates
+        setSnapshots([]);
+        setAllCurrencies([]);
+        setLoading(true);
         loadData(scope);
         loadAllCurrencies();
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -373,12 +379,17 @@ export default function App() {
 
                 {/* Footer */}
                 <footer className="pt-10 pb-4 border-t border-white/5">
-                    <p className="text-[12px] tracking-[0.3em] uppercase font-bold text-gray-500 mb-1.5">
-                        {t('app.footer.title')}
-                    </p>
-                    <p className="text-[13px] text-gray-500">
-                        {t('app.footer.body')}
-                    </p>
+                    <div className="flex items-start justify-between gap-6 flex-wrap">
+                        <div className="flex-1 min-w-[260px]">
+                            <p className="text-[12px] tracking-[0.3em] uppercase font-bold text-gray-500 mb-1.5">
+                                {t('app.footer.title')}
+                            </p>
+                            <p className="text-[13px] text-gray-500">
+                                {t('app.footer.body')}
+                            </p>
+                        </div>
+                        <LangToggle inline />
+                    </div>
                 </footer>
             </main>
 
@@ -392,7 +403,6 @@ export default function App() {
                 />
             )}
             <HelpModal open={showHelp} onClose={() => setShowHelp(false)} />
-            <LangToggle />
         </div>
     );
 }

@@ -394,6 +394,72 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                     },
                 });
                 y = pdf.lastAutoTable.finalY + 8;
+
+                // ---------- Net Position historical sparkline (native SVG-style line) ----------
+                ensurePage(46);
+                const histSeries = [...history].slice(0, 26).reverse(); // oldest -> newest
+                const cw = W - M * 2;
+                const ch = 36;
+                panel(M, y, cw, ch);
+                setText(MUTED);
+                pdf.setFont('helvetica', 'bold');
+                pdf.setFontSize(7);
+                pdf.text(t('modal.chart_title').toUpperCase() + ' · NET POSITION', M + 4, y + 5);
+                setText(TEXT);
+                pdf.setFont('helvetica', 'normal');
+                pdf.setFontSize(8);
+                const lastNet = histSeries[histSeries.length - 1]?.netPosition ?? 0;
+                pdf.text(formatSigned(lastNet), M + cw - 4, y + 5, { align: 'right' });
+
+                if (histSeries.length > 1) {
+                    const nets = histSeries.map((h) => h.netPosition || 0);
+                    const minV = Math.min(0, ...nets);
+                    const maxV = Math.max(0, ...nets);
+                    const range = Math.max(1, maxV - minV);
+                    const px = (i) => M + 4 + (i / (nets.length - 1)) * (cw - 8);
+                    const py = (v) => y + ch - 4 - ((v - minV) / range) * (ch - 12);
+                    setDraw(BORDER);
+                    pdf.setLineWidth(0.15);
+                    pdf.line(M + 4, py(0), M + cw - 4, py(0));
+                    setDraw(AMBER);
+                    pdf.setLineWidth(0.5);
+                    for (let i = 1; i < nets.length; i++) {
+                        pdf.line(px(i - 1), py(nets[i - 1]), px(i), py(nets[i]));
+                    }
+                }
+                y += ch + 6;
+
+                // ---------- Δ WoW Recent bar sparkline ----------
+                ensurePage(46);
+                const dw = W - M * 2;
+                const dh = 36;
+                panel(M, y, dw, dh);
+                setText(MUTED);
+                pdf.setFont('helvetica', 'bold');
+                pdf.setFontSize(7);
+                pdf.text(t('modal.delta_recent').toUpperCase() + ' · ' + t('modal.delta_subtitle'), M + 4, y + 5);
+
+                const deltas = histSeries.slice(-12).map((h) => h.wowDelta || 0);
+                if (deltas.length) {
+                    const absMax = Math.max(1, ...deltas.map((d) => Math.abs(d)));
+                    const barW = (dw - 12) / deltas.length - 1;
+                    const cy = y + dh / 2 + 2;
+                    setDraw(BORDER);
+                    pdf.setLineWidth(0.15);
+                    pdf.line(M + 4, cy, M + dw - 4, cy);
+                    deltas.forEach((d, i) => {
+                        const bx = M + 6 + i * (barW + 1);
+                        const bh = ((Math.abs(d) / absMax) * (dh / 2 - 4));
+                        if (d >= 0) {
+                            setFill(GREEN);
+                            pdf.rect(bx, cy - bh, barW, bh, 'F');
+                        } else {
+                            setFill(RED);
+                            pdf.rect(bx, cy, barW, bh, 'F');
+                        }
+                    });
+                }
+                y += dh + 8;
             }
 
             // ---------- Performance R Panel ----------

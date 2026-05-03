@@ -41,6 +41,12 @@
 - Backend tests: 12/12 PASS
 - Frontend: 95% (only cold-cache transient banner; resolved on subsequent loads)
 
+## Latest Session (Feb 2026) — Round 5 (rifinitura finale)
+- **Trade performance solo se bias concordi**: `_synthetic_verdict` aggiornato — LONG solo se `net>0 AND delta>0`, SHORT solo se `net<0 AND delta<0`, altrimenti WAIT (escluso). `_backfill_verdicts` ora rigenera sempre i sintetici per propagare la nuova regola. `verdict_performance` filtra i WAIT. Test EURUSD: 26 trade (era 50), 25 valutati, 52% win rate, R cumulativo +1R.
+- **Toggle lingua nel footer** (no più overlay): integrato come elemento del flusso, parent = footer DIV. Scrolla con la pagina, sempre visibile alla fine.
+- **Re-fetch lingua più aggressivo**: al cambio toggle, `setSnapshots([])` immediato per dare feedback visivo, poi rigenero AI con lang corretto.
+- **PDF arricchito**: aggiunte le sezioni mancanti — sparkline Net Position storico (vector line) + Δ WoW recent bars (vector verde/rosso). PDF ora copre l'intera card. 62 KB nativo.
+
 ## Latest Session (Feb 2026) — Round 4 (rifinitura)
 - **AI multilingua end-to-end**:
   - Backend: tutti gli endpoint AI (`/cot/{asset}`, `/cot/bulk`, `/macro/{asset}`, `/verdict/{asset}`) accettano `?lang=it|en`. Prompt e fallback dinamici. Cache `_id` separata per lingua (`{asset}__{lang}`).

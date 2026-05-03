@@ -554,6 +554,9 @@ async def verdict_performance(asset_id: str) -> Dict[str, Any]:
         ed = v.get("entryReportDate")
         if not ed or ed in seen_entries:
             continue
+        # Skip WAIT verdicts: only LONG/SHORT trades count for performance
+        if v.get("verdict") not in ("LONG", "SHORT"):
+            continue
         seen_entries.add(ed)
         unique_verdicts.append(v)
 
@@ -659,7 +662,10 @@ async def verdict_performance(asset_id: str) -> Dict[str, Any]:
 
 
 def _synthetic_verdict(snapshot: Dict[str, Any]) -> Dict[str, Any]:
-    """Deterministic rule-based verdict from COT metrics, NO LLM."""
+    """Deterministic rule-based verdict from COT metrics, NO LLM.
+    Trade only when short-term (Δ WoW) and long-term (Net Position) bias agree;
+    otherwise WAIT (no trade).
+    """
     net = snapshot.get("netPosition", 0)
     delta = snapshot.get("wowDelta", 0)
     long = snapshot.get("long", 0) or 1
@@ -668,7 +674,6 @@ def _synthetic_verdict(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     net_ratio = net / total
     delta_ratio = delta / total
 
-    # Confidence based on magnitude of net + delta
     conf = 1
     mag = abs(net_ratio) * 2 + abs(delta_ratio) * 3
     if mag > 0.2: conf = 2
@@ -676,23 +681,25 @@ def _synthetic_verdict(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     if mag > 0.6: conf = 4
     if mag > 0.9: conf = 5
 
+    # Only fire LONG/SHORT when short-term and long-term bias are concordant
     if net > 0 and delta > 0:
         verdict = "LONG"
     elif net < 0 and delta < 0:
         verdict = "SHORT"
-    elif abs(delta_ratio) < 0.03:
-        verdict = "WAIT"
     else:
-        # Divergence: trust momentum (delta) over bias (net)
-        verdict = "LONG" if delta > 0 else "SHORT"
+        verdict = "WAIT"
     return {"verdict": verdict, "confidence": conf}
 
 
 async def _backfill_verdicts(asset_id: str, depth: int = 20) -> None:
-    """Create rule-based synthetic verdicts for the last N COT reports if missing."""
+    """Create rule-based synthetic verdicts for the last N COT reports.
+    Always re-generates synthetic entries so verdict logic changes propagate.
+    Real (non-synthetic) verdicts from the LLM are preserved.
+    """
+    # Wipe synthetic entries for this asset so we can regenerate them
+    await db[VERDICT_HISTORY_COLL].delete_many({"assetId": asset_id, "synthetic": True})
     existing = await db[VERDICT_HISTORY_COLL].distinct("entryReportDate", {"assetId": asset_id})
     existing_set = set(existing)
-    # Use cached or fresh COT history
     hist = await cot_history(asset_id, limit=depth)
     to_insert = []
     for row in hist:
