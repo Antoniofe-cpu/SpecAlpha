@@ -41,6 +41,14 @@
 - Backend tests: 12/12 PASS
 - Frontend: 95% (only cold-cache transient banner; resolved on subsequent loads)
 
+## Latest Session (Feb 2026) — Round 8 (backtest intra-settimanale A2→A2)
+- **Ridisegno logica per utente**: il trade è **intra-settimana**. Report A1 → operazione confinata nella settimana A2.
+  - Per LONG: trova la coppia (i,j) con i<j che massimizza `price[j] - price[i]` nei giorni di A2.
+  - Per SHORT: trova la coppia (i,j) con i<j che massimizza `price[i] - price[j]`.
+  - Rispetta l'ordine cronologico: entry sempre prima dell'exit.
+- Esempio NAS100 2026-03-10 LONG: Entry 2026-03-16 (24655) → Exit 2026-03-17 (24780) = **+0.51% WIN**. Tutto dentro la settimana del 16-20 marzo.
+- Tabella e PDF: tornate a singolo Week Low/High (l'escursione informativa della settimana A2).
+
 ## Latest Session (Feb 2026) — Round 7 (backtest ideale 2 settimane)
 - **Logica performance ridisegnata** come richiesto dall'utente: backtest "best-case" su 2 settimane.
   - W1 (settimana dopo il report): entry al prezzo migliore in direzione del segnale — LONG → W1 min, SHORT → W1 max.

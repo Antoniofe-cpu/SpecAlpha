@@ -588,8 +588,6 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                         t('modal.perf.col.exit_price'),
                         t('modal.perf.col.week_min'),
                         t('modal.perf.col.week_max'),
-                        t('modal.perf.col.week2_min'),
-                        t('modal.perf.col.week2_max'),
                         t('modal.perf.col.net_pct'),
                         t('modal.perf.col.r'),
                         t('modal.perf.col.outcome'),
@@ -601,8 +599,6 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                         r.exitPrice != null ? Number(r.exitPrice).toFixed(4) : '—',
                         r.weekMin != null ? Number(r.weekMin).toFixed(4) : '—',
                         r.weekMax != null ? Number(r.weekMax).toFixed(4) : '—',
-                        r.week2Min != null ? Number(r.week2Min).toFixed(4) : '—',
-                        r.week2Max != null ? Number(r.week2Max).toFixed(4) : '—',
                         r.netPct != null ? `${formatSigned(r.netPct.toFixed(2))}%` : '—',
                         r.r != null ? `${formatSigned(r.r)}R` : '—',
                         r.outcome || '—',
@@ -616,13 +612,13 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                             else if (v === 'WAIT') data.cell.styles.textColor = AMBER;
                             data.cell.styles.fontStyle = 'bold';
                         }
-                        if (data.column.index === 8 || data.column.index === 9) {
+                        if (data.column.index === 6 || data.column.index === 7) {
                             const v = data.cell.text[0];
                             if (v.startsWith('+')) data.cell.styles.textColor = GREEN;
                             else if (v.startsWith('-')) data.cell.styles.textColor = RED;
                             data.cell.styles.fontStyle = 'bold';
                         }
-                        if (data.column.index === 10) {
+                        if (data.column.index === 8) {
                             const v = data.cell.text[0];
                             if (v === 'WIN') data.cell.styles.textColor = GREEN;
                             else if (v === 'LOSS') data.cell.styles.textColor = RED;
@@ -1425,8 +1421,6 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                                                 <th className="px-2 py-2 text-right">{t('modal.perf.col.exit_price')}</th>
                                                                 <th className="px-2 py-2 text-right">{t('modal.perf.col.week_min')}</th>
                                                                 <th className="px-2 py-2 text-right">{t('modal.perf.col.week_max')}</th>
-                                                                <th className="px-2 py-2 text-right">{t('modal.perf.col.week2_min')}</th>
-                                                                <th className="px-2 py-2 text-right">{t('modal.perf.col.week2_max')}</th>
                                                                 <th className="px-2 py-2 text-right">{t('modal.perf.col.net_pct')}</th>
                                                                 <th className="px-2 py-2 text-right">{t('modal.perf.col.r')}</th>
                                                                 <th className="px-2 py-2 text-left">{t('modal.perf.col.outcome')}</th>
@@ -1463,12 +1457,6 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                                                     </td>
                                                                     <td className="px-2 py-2 text-right text-gray-500">
                                                                         {r.weekMax != null ? Number(r.weekMax).toFixed(4) : '—'}
-                                                                    </td>
-                                                                    <td className="px-2 py-2 text-right text-gray-500">
-                                                                        {r.week2Min != null ? Number(r.week2Min).toFixed(4) : '—'}
-                                                                    </td>
-                                                                    <td className="px-2 py-2 text-right text-gray-500">
-                                                                        {r.week2Max != null ? Number(r.week2Max).toFixed(4) : '—'}
                                                                     </td>
                                                                     <td
                                                                         className={cn(

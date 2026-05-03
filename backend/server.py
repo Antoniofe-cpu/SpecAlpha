@@ -567,27 +567,50 @@ async def verdict_performance(asset_id: str) -> Dict[str, Any]:
         dates = [v["entryReportDate"] for v in unique_verdicts if v.get("entryReportDate")]
         if dates:
             min_d = datetime.strptime(min(dates), "%Y-%m-%d")
-            # Need prices up to 2 weeks after the latest report date (week-2 exit window)
-            max_d = datetime.strptime(max(dates), "%Y-%m-%d") + timedelta(days=21)
+            # Need prices up to 1 week after the latest report date (A2 window)
+            max_d = datetime.strptime(max(dates), "%Y-%m-%d") + timedelta(days=14)
             prices = await fetch_daily_closes(asset_id, min_d - timedelta(days=3), max_d)
 
-    def _week_min_max(start_date: str, end_date: str):
-        """Return (min, max) close in [start_date, end_date] inclusive, or (None, None)."""
+    def _week_prices(start_date: str, end_date: str):
+        """Return ordered list of (date_iso, price) for trading days within [start, end]."""
         try:
             sd = datetime.strptime(start_date, "%Y-%m-%d").date()
             ed = datetime.strptime(end_date, "%Y-%m-%d").date()
         except Exception:
-            return None, None
-        vals = []
+            return []
+        out = []
         cur = sd
         while cur <= ed:
             key = cur.isoformat()
             if key in prices:
-                vals.append(prices[key])
+                out.append((key, prices[key]))
             cur = cur + timedelta(days=1)
-        if not vals:
-            return None, None
-        return min(vals), max(vals)
+        return out
+
+    def _best_intra_week_trade(week: list, direction: str):
+        """Return (entry_date, entry_price, exit_date, exit_price) for best trade
+        respecting chronological order entry < exit. Returns None if week has < 2 days.
+        LONG: maximise price[j] - price[i] for i < j.
+        SHORT: maximise price[i] - price[j] for i < j.
+        """
+        if len(week) < 2:
+            return None
+        best = None  # (pnl, entry, exit)
+        n = len(week)
+        for i in range(n):
+            for j in range(i + 1, n):
+                di, pi = week[i]
+                dj, pj = week[j]
+                pnl = (pj - pi) if direction == "LONG" else (pi - pj)
+                if best is None or pnl > best[0]:
+                    if direction == "LONG":
+                        best = (pnl, di, pi, dj, pj)
+                    else:
+                        best = (pnl, di, pi, dj, pj)
+        if best is None:
+            return None
+        _, ed_in, ep_in, ed_out, ep_out = best
+        return ed_in, ep_in, ed_out, ep_out
 
     results = []
     wins = losses = pending = 0
@@ -595,56 +618,46 @@ async def verdict_performance(asset_id: str) -> Dict[str, Any]:
     cum_net_pct = 0.0
     for v in unique_verdicts:
         report_date = v.get("entryReportDate")
-        # Week 1 (entry window): Monday → Friday of the week AFTER the report
-        week1_mon = next_monday(report_date)
-        week1_fri = following_friday(week1_mon)
-        # Week 2 (exit window): the following week
-        try:
-            w2_mon_d = datetime.strptime(week1_mon, "%Y-%m-%d").date() + timedelta(days=7)
-            week2_mon = w2_mon_d.isoformat()
-        except Exception:
-            week2_mon = week1_mon
-        week2_fri = following_friday(week2_mon)
-
-        w1_min, w1_max = _week_min_max(week1_mon, week1_fri)
-        w2_min, w2_max = _week_min_max(week2_mon, week2_fri)
+        # Trade window: the week after the report (A2)
+        week_mon = next_monday(report_date)
+        week_fri = following_friday(week_mon)
+        week_days = _week_prices(week_mon, week_fri)
+        # Informational week min/max
+        w_min = min((p for _, p in week_days), default=None)
+        w_max = max((p for _, p in week_days), default=None)
 
         verdict_dir = v.get("verdict")
         entry_price = None
         exit_price = None
+        entry_date = week_mon
+        exit_date = week_fri
         r = None
         net_pct = None
         outcome = "PENDING"
 
-        if (verdict_dir in ("LONG", "SHORT")
-                and w1_min is not None and w1_max is not None
-                and w2_min is not None and w2_max is not None):
-            if verdict_dir == "LONG":
-                # Buy the week-1 pullback, sell the week-2 rally
-                entry_price = w1_min
-                exit_price = w2_max
-                direction = 1
-            else:  # SHORT
-                # Sell the week-1 rally, cover the week-2 dip
-                entry_price = w1_max
-                exit_price = w2_min
-                direction = -1
-            if entry_price and entry_price != 0:
-                raw_pct = ((exit_price - entry_price) / entry_price) * 100 * direction
-                net_pct = round(raw_pct, 3)
-                if net_pct > 0:
-                    r = 1
-                    outcome = "WIN"
-                    wins += 1
-                elif net_pct < 0:
-                    r = -1
-                    outcome = "LOSS"
-                    losses += 1
-                else:
-                    r = 0
-                    outcome = "FLAT"
-                cum_r += r
-                cum_net_pct += net_pct
+        if verdict_dir in ("LONG", "SHORT"):
+            best = _best_intra_week_trade(week_days, verdict_dir)
+            if best is not None:
+                entry_date, entry_price, exit_date, exit_price = best
+                direction = 1 if verdict_dir == "LONG" else -1
+                if entry_price and entry_price != 0:
+                    raw_pct = ((exit_price - entry_price) / entry_price) * 100 * direction
+                    net_pct = round(raw_pct, 3)
+                    if net_pct > 0:
+                        r = 1
+                        outcome = "WIN"
+                        wins += 1
+                    elif net_pct < 0:
+                        r = -1
+                        outcome = "LOSS"
+                        losses += 1
+                    else:
+                        r = 0
+                        outcome = "FLAT"
+                    cum_r += r
+                    cum_net_pct += net_pct
+            else:
+                pending += 1
         else:
             pending += 1
 
@@ -652,14 +665,12 @@ async def verdict_performance(asset_id: str) -> Dict[str, Any]:
             "verdictDate": report_date,
             "verdict": verdict_dir,
             "confidence": v.get("confidence"),
-            "entryDate": week1_mon,
+            "entryDate": entry_date,
             "entryPrice": entry_price,
-            "exitDate": week2_fri,
+            "exitDate": exit_date,
             "exitPrice": exit_price,
-            "weekMin": w1_min,
-            "weekMax": w1_max,
-            "week2Min": w2_min,
-            "week2Max": w2_max,
+            "weekMin": w_min,
+            "weekMax": w_max,
             "r": r,
             "netPct": net_pct,
             "outcome": outcome,
