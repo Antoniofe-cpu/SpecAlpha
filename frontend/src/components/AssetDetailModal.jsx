@@ -797,7 +797,93 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                                 </span>
                                             </div>
                                             {performance.history.length > 0 ? (
-                                                <div className="overflow-x-auto">
+                                                <>
+                                                    {/* Equity curve */}
+                                                    {(() => {
+                                                        const evaluated = [...performance.history]
+                                                            .reverse()
+                                                            .filter((r) => r.pnlPct !== null);
+                                                        if (evaluated.length === 0) return null;
+                                                        let cum = 0;
+                                                        const curve = evaluated.map((r) => {
+                                                            cum += r.pnlPct;
+                                                            return { date: r.verdictDate, equity: Number(cum.toFixed(2)) };
+                                                        });
+                                                        const showCurve = curve.slice(-20);
+                                                        return (
+                                                            <div
+                                                                data-testid="equity-chart"
+                                                                className="bg-black/30 border border-white/5 rounded-2xl p-4 mb-4"
+                                                            >
+                                                                <div className="flex items-center justify-between mb-2">
+                                                                    <span className="text-[11px] uppercase tracking-[0.22em] text-gray-500 font-semibold">
+                                                                        Equity Curve · ultimi {showCurve.length} verdetti
+                                                                    </span>
+                                                                    <span
+                                                                        className={cn(
+                                                                            'font-mono text-[14px] font-semibold tnum',
+                                                                            cum >= 0 ? 'text-[#34d399]' : 'text-[#fb7185]'
+                                                                        )}
+                                                                    >
+                                                                        {formatSigned(cum.toFixed(2))}%
+                                                                    </span>
+                                                                </div>
+                                                                <div className="h-[160px]">
+                                                                    <ResponsiveContainer width="100%" height="100%">
+                                                                        <AreaChart data={showCurve} margin={{ top: 4, right: 4, bottom: 0, left: -10 }}>
+                                                                            <defs>
+                                                                                <linearGradient id="eqGrad" x1="0" y1="0" x2="0" y2="1">
+                                                                                    <stop offset="0%" stopColor="#f59e0b" stopOpacity={0.45} />
+                                                                                    <stop offset="100%" stopColor="#f59e0b" stopOpacity={0} />
+                                                                                </linearGradient>
+                                                                            </defs>
+                                                                            <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.04)" />
+                                                                            <XAxis
+                                                                                dataKey="date"
+                                                                                stroke="#6b7280"
+                                                                                fontSize={10}
+                                                                                axisLine={false}
+                                                                                tickLine={false}
+                                                                                tickFormatter={(v) => v?.slice(5)}
+                                                                                tick={{ fontFamily: 'Geist Mono' }}
+                                                                            />
+                                                                            <YAxis
+                                                                                stroke="#6b7280"
+                                                                                fontSize={10}
+                                                                                axisLine={false}
+                                                                                tickLine={false}
+                                                                                width={44}
+                                                                                tick={{ fontFamily: 'Geist Mono' }}
+                                                                                tickFormatter={(v) => v + '%'}
+                                                                            />
+                                                                            <Tooltip
+                                                                                contentStyle={{
+                                                                                    backgroundColor: '#0a0a0d',
+                                                                                    border: '1px solid rgba(245,158,11,0.4)',
+                                                                                    borderRadius: 10,
+                                                                                    fontSize: 11,
+                                                                                    fontFamily: 'Geist Mono',
+                                                                                }}
+                                                                                formatter={(v) => `${v}%`}
+                                                                            />
+                                                                            <Area
+                                                                                type="monotone"
+                                                                                dataKey="equity"
+                                                                                stroke="#f59e0b"
+                                                                                strokeWidth={2}
+                                                                                fill="url(#eqGrad)"
+                                                                            />
+                                                                        </AreaChart>
+                                                                    </ResponsiveContainer>
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })()}
+
+                                                    <div className="text-[11px] uppercase tracking-[0.22em] text-gray-500 font-semibold mb-2">
+                                                        Ultimi 5 verdetti
+                                                    </div>
+                                                    <div className="overflow-x-auto">
                                                     <table className="w-full text-[12.5px]">
                                                         <thead>
                                                             <tr className="text-[10px] uppercase tracking-[0.2em] text-gray-500 font-semibold border-b border-white/5">
@@ -812,7 +898,7 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                                             </tr>
                                                         </thead>
                                                         <tbody className="font-mono">
-                                                            {performance.history.map((r, i) => (
+                                                            {performance.history.slice(0, 5).map((r, i) => (
                                                                 <tr
                                                                     key={i}
                                                                     className={cn(
@@ -869,6 +955,7 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                                         </tbody>
                                                     </table>
                                                 </div>
+                                                </>
                                             ) : (
                                                 <p className="text-[13px] text-gray-500 mt-3">
                                                     Nessuno storico disponibile. Apri questo asset nei prossimi report per accumulare verdetti valutabili.

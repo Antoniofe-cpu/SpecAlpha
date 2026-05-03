@@ -287,6 +287,23 @@ async def cot_history(asset_id: str, limit: int = Query(60, ge=1, le=200), refre
         if cached:
             return cached[:limit]
     data = await fetch_cot_history(asset_id, limit=200)
+
+    # Override `price` field using Yahoo Finance daily closes (real market prices)
+    if data and asset_id in YAHOO_SYMBOL:
+        try:
+            dates = [d["date"] for d in data if d.get("date")]
+            if dates:
+                min_d = datetime.strptime(min(dates), "%Y-%m-%d")
+                max_d = datetime.strptime(max(dates), "%Y-%m-%d") + timedelta(days=1)
+                closes = await fetch_daily_closes(asset_id, min_d - timedelta(days=3), max_d)
+                if closes:
+                    for row in data:
+                        nearest = nearest_close_on_or_before(closes, row["date"], max_back_days=6)
+                        if nearest:
+                            row["price"] = round(nearest[1], 4)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("yahoo price override failed for %s: %s", asset_id, e)
+
     await set_cached_history(asset_id, data)
     return data[:limit]
 
@@ -550,7 +567,7 @@ async def verdict_performance(asset_id: str) -> Dict[str, Any]:
         "pending": pending,
         "winRate": win_rate,
         "cumulativePnlPct": round(pnl_sum, 2),
-        "history": list(reversed(results))[:30],
+        "history": list(reversed(results))[:200],
     }
 
 
