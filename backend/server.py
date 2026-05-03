@@ -476,21 +476,17 @@ async def final_verdict(asset_id: str, refresh: bool = Query(False)) -> Dict[str
 @api.get("/verdict/{asset_id}/performance")
 async def verdict_performance(asset_id: str) -> Dict[str, Any]:
     """
-    Weekly trading logic (R-multiple based on min/max excursion):
-      - Entry: Monday close of the week following the COT report.
-      - Risk window: Mon → Fri of that week.
-      - For each verdict, compute MFE (max favorable excursion) and MAE (max adverse
-        excursion) using the daily min/max within the trade week, relative to entry.
-      - R = MFE / MAE (capped at 10R when MAE ~ 0).
-      - netR per trade = R - 1  (positive = trade went more in favour than against).
-      - Cumulative R = sum(netR).
+    Logica semplificata:
+      - Entry: Monday close della settimana successiva al report COT.
+      - Risk window: Mon → Fri (min/max daily price).
+      - Per ogni verdict: WIN (+1R) se MFE > MAE, LOSS (-1R) se MAE > MFE, FLAT (0R) se uguali.
+      - Cumulative R = somma dei +1/-1 (= wins - losses).
     Auto-backfills synthetic verdicts (rule-based, NO LLM) for last 50 reports.
     """
     asset_id = asset_id.upper()
     if asset_id not in ASSET_MAP:
         raise HTTPException(status_code=404, detail="Unknown asset")
 
-    # Auto-backfill last 50 COT reports with deterministic synthetic verdicts (no LLM)
     await _backfill_verdicts(asset_id, depth=50)
 
     cursor = db[VERDICT_HISTORY_COLL].find(
@@ -498,7 +494,6 @@ async def verdict_performance(asset_id: str) -> Dict[str, Any]:
     ).sort("entryReportDate", 1)
     verdicts = await cursor.to_list(length=500)
 
-    # Deduplicate by entryReportDate (keep first verdict per COT report)
     seen_entries = set()
     unique_verdicts = []
     for v in verdicts:
@@ -508,10 +503,8 @@ async def verdict_performance(asset_id: str) -> Dict[str, Any]:
         seen_entries.add(ed)
         unique_verdicts.append(v)
 
-    # Keep only the last 50
     unique_verdicts = unique_verdicts[-50:]
 
-    # Batch-fetch daily prices covering all verdict weeks
     prices: Dict[str, float] = {}
     if unique_verdicts and asset_id in YAHOO_SYMBOL:
         dates = [v["entryReportDate"] for v in unique_verdicts if v.get("entryReportDate")]
@@ -521,7 +514,6 @@ async def verdict_performance(asset_id: str) -> Dict[str, Any]:
             prices = await fetch_daily_closes(asset_id, min_d - timedelta(days=3), max_d)
 
     def _week_min_max(start_date: str, end_date: str):
-        """Return (min, max) close in [start_date, end_date] inclusive, or (None, None)."""
         try:
             sd = datetime.strptime(start_date, "%Y-%m-%d").date()
             ed = datetime.strptime(end_date, "%Y-%m-%d").date()
@@ -540,8 +532,7 @@ async def verdict_performance(asset_id: str) -> Dict[str, Any]:
 
     results = []
     wins = losses = pending = 0
-    cum_r = 0.0
-    cum_net_r = 0.0
+    cum_r = 0
     for v in unique_verdicts:
         report_date = v.get("entryReportDate")
         monday = next_monday(report_date)
@@ -553,9 +544,7 @@ async def verdict_performance(asset_id: str) -> Dict[str, Any]:
         week_min, week_max = _week_min_max(entry_date, friday)
 
         verdict_dir = v.get("verdict")
-        mfe = mae = None
-        r_value = None
-        net_r = None
+        r = None
         outcome = "PENDING"
 
         if entry_price is not None and week_min is not None and week_max is not None:
@@ -567,22 +556,21 @@ async def verdict_performance(asset_id: str) -> Dict[str, Any]:
                 mae = max(0.0, week_max - entry_price)
             else:
                 outcome = "NEUTRAL"
+                mfe = mae = None
 
-            if verdict_dir in ("LONG", "SHORT"):
-                # Avoid divide-by-zero — cap R at 10
-                eps = max(1e-6, entry_price * 1e-5)
-                r_value = round(min(10.0, (mfe or 0.0) / max(mae or 0.0, eps)), 2)
-                net_r = round(r_value - 1.0, 2)
-                if net_r > 0:
-                    wins += 1
+            if verdict_dir in ("LONG", "SHORT") and mfe is not None and mae is not None:
+                if mfe > mae:
+                    r = 1
                     outcome = "WIN"
-                elif net_r < 0:
-                    losses += 1
+                    wins += 1
+                elif mae > mfe:
+                    r = -1
                     outcome = "LOSS"
+                    losses += 1
                 else:
+                    r = 0
                     outcome = "FLAT"
-                cum_r += r_value
-                cum_net_r += net_r
+                cum_r += r
         else:
             pending += 1
 
@@ -595,10 +583,7 @@ async def verdict_performance(asset_id: str) -> Dict[str, Any]:
             "exitDate": friday,
             "weekMin": week_min,
             "weekMax": week_max,
-            "mfe": round(mfe, 4) if mfe is not None else None,
-            "mae": round(mae, 4) if mae is not None else None,
-            "rValue": r_value,
-            "netR": net_r,
+            "r": r,
             "outcome": outcome,
             "summary": v.get("summary"),
             "synthetic": v.get("synthetic", False),
@@ -614,8 +599,7 @@ async def verdict_performance(asset_id: str) -> Dict[str, Any]:
         "losses": losses,
         "pending": pending,
         "winRate": win_rate,
-        "cumulativeR": round(cum_r, 2),
-        "cumulativeNetR": round(cum_net_r, 2),
+        "cumulativeR": cum_r,
         "history": list(reversed(results))[:50],
     }
 

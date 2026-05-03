@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     AreaChart,
@@ -31,8 +31,8 @@ import {
     EyeOff,
     TrendingDown,
 } from 'lucide-react';
+import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
 import { fetchHistory, fetchMacro, fetchVerdict, fetchVerdictPerformance } from '../api';
 import { cn, formatNumber, formatSigned, getTrendAnalysis, TONE_CLASSES } from '../utils';
 import { useT } from '../i18n';
@@ -51,6 +51,7 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
     const [exporting, setExporting] = useState(false);
     const [windowSize, setWindowSize] = useState(26);
     const [snapshot, setSnapshot] = useState(asset);
+    const captureRef = useRef(null);
     const [visible, setVisible] = useState({
         netPosition: true,
         long: false,
@@ -143,257 +144,73 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
     };
 
     const handleExport = async () => {
-        if (exporting) return;
+        if (!captureRef.current || exporting) return;
         setExporting(true);
         try {
-            // Ensure we have the performance data
-            let perf = performance;
-            if (!perf) {
-                try {
-                    perf = await fetchVerdictPerformance(asset.assetId);
-                    setPerformance(perf);
-                } catch (e) {
-                    console.warn('perf fetch failed', e);
-                }
+            // Make sure performance panel is rendered with data
+            if (!showPerformance) setShowPerformance(true);
+            if (!performance) {
+                try { await loadPerformance(); } catch {}
             }
+            // Wait two frames for Recharts/SVG to fully render
+            await new Promise((r) => setTimeout(r, 450));
 
+            const node = captureRef.current;
+            const rect = node.getBoundingClientRect();
+
+            // Clone the node so we can flatten it offscreen without disturbing the live UI
+            const clone = node.cloneNode(true);
+            clone.style.position = 'fixed';
+            clone.style.top = '0';
+            clone.style.left = '-100000px';
+            clone.style.width = rect.width + 'px';
+            clone.style.maxHeight = 'none';
+            clone.style.height = 'auto';
+            clone.style.overflow = 'visible';
+            clone.style.borderRadius = '0px';
+            clone.style.transform = 'none';
+            // Flatten the inner scrollable container
+            const scrollEl = clone.querySelector('.flex-1.overflow-y-auto');
+            if (scrollEl) {
+                scrollEl.style.overflow = 'visible';
+                scrollEl.style.maxHeight = 'none';
+                scrollEl.style.flex = 'none';
+            }
+            // Hide the close (X) and PDF buttons in the clone (no need in PDF)
+            clone.querySelectorAll('[data-testid="modal-close-btn"], [data-testid="modal-export-btn"]').forEach((el) => {
+                el.style.visibility = 'hidden';
+            });
+            document.body.appendChild(clone);
+            await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+            const canvas = await html2canvas(clone, {
+                backgroundColor: '#0a0a0d',
+                scale: 2,
+                useCORS: true,
+                logging: false,
+                width: clone.scrollWidth,
+                height: clone.scrollHeight,
+                windowWidth: clone.scrollWidth,
+                windowHeight: clone.scrollHeight,
+            });
+            document.body.removeChild(clone);
+
+            const imgData = canvas.toDataURL('image/png');
             const pdf = new jsPDF('p', 'mm', 'a4');
             const pageW = pdf.internal.pageSize.getWidth();
             const pageH = pdf.internal.pageSize.getHeight();
-            const margin = 14;
-            let y = margin;
-
-            // ----- Header -----
-            pdf.setFillColor(10, 10, 13);
-            pdf.rect(0, 0, pageW, 32, 'F');
-            pdf.setTextColor(245, 158, 11);
-            pdf.setFont('helvetica', 'bold');
-            pdf.setFontSize(16);
-            pdf.text(t('pdf.title'), margin, 14);
-            pdf.setTextColor(180);
-            pdf.setFont('helvetica', 'normal');
-            pdf.setFontSize(9);
-            pdf.text(`${snapshot.name} · ${asset.assetId} · ${snapshot.type}`, margin, 21);
-            const stamp = new Date().toLocaleString();
-            pdf.text(`${t('pdf.generated')}: ${stamp}`, pageW - margin, 21, { align: 'right' });
-            y = 40;
-
-            // ----- Section: Snapshot -----
-            pdf.setTextColor(245, 158, 11);
-            pdf.setFont('helvetica', 'bold');
-            pdf.setFontSize(11);
-            pdf.text(t('pdf.section.summary'), margin, y);
-            y += 2;
-            const trendForPdf = getTrendAnalysis(snapshot);
-            autoTable(pdf, {
-                startY: y + 1,
-                margin: { left: margin, right: margin },
-                theme: 'grid',
-                styles: { fontSize: 9, textColor: 30, lineColor: 220, lineWidth: 0.1 },
-                headStyles: { fillColor: [22, 22, 28], textColor: 255 },
-                body: [
-                    [t('pdf.field.report_date'), snapshot.reportDate || '—'],
-                    [t('pdf.field.signal'), t(trendForPdf.signalKey)],
-                    [t('modal.net_position'), formatNumber(snapshot.netPosition)],
-                    ['Δ WoW', formatSigned(snapshot.wowDelta)],
-                    [t('modal.col.long'), `${formatNumber(snapshot.long)} (${formatSigned(snapshot.changeLong)})`],
-                    [t('modal.col.short'), `${formatNumber(snapshot.short)} (${formatSigned(snapshot.changeShort)})`],
-                    [t('card.oi_share'), `${snapshot.openInterestShare ?? '—'}%`],
-                    [t('card.intensity'), `${snapshot.intensityIndex ?? '—'}/100`],
-                ],
-                columnStyles: {
-                    0: { fontStyle: 'bold', cellWidth: 50, fillColor: [248, 248, 252] },
-                },
-            });
-            y = pdf.lastAutoTable.finalY + 6;
-
-            // ----- Macro insight quote -----
-            if (snapshot.macro) {
-                pdf.setTextColor(245, 158, 11);
-                pdf.setFont('helvetica', 'bold');
-                pdf.setFontSize(10);
-                pdf.text(t('modal.macro_intel'), margin, y);
-                y += 5;
-                pdf.setTextColor(40);
-                pdf.setFont('helvetica', 'italic');
-                pdf.setFontSize(9);
-                const lines = pdf.splitTextToSize(`"${snapshot.macro}"`, pageW - margin * 2);
-                pdf.text(lines, margin, y);
-                y += lines.length * 4 + 4;
+            const imgW = pageW;
+            const imgH = (canvas.height * imgW) / canvas.width;
+            let heightLeft = imgH;
+            let position = 0;
+            pdf.addImage(imgData, 'PNG', 0, position, imgW, imgH);
+            heightLeft -= pageH;
+            while (heightLeft > 0) {
+                position = heightLeft - imgH;
+                pdf.addPage();
+                pdf.addImage(imgData, 'PNG', 0, position, imgW, imgH);
+                heightLeft -= pageH;
             }
-
-            // ----- Macro Sentiment -----
-            if (macro && macro.summary) {
-                if (y > pageH - 60) { pdf.addPage(); y = margin; }
-                pdf.setTextColor(245, 158, 11);
-                pdf.setFont('helvetica', 'bold');
-                pdf.setFontSize(11);
-                pdf.text(`${t('pdf.section.macro')} · ${macro.eventCount ?? 0} ${t('modal.events')}`, margin, y);
-                y += 5;
-                pdf.setTextColor(40);
-                pdf.setFont('helvetica', 'normal');
-                pdf.setFontSize(9);
-                const macLines = pdf.splitTextToSize(macro.summary, pageW - margin * 2);
-                pdf.text(macLines, margin, y);
-                y += macLines.length * 4 + 3;
-                if (macro.events && macro.events.length) {
-                    autoTable(pdf, {
-                        startY: y,
-                        margin: { left: margin, right: margin },
-                        theme: 'striped',
-                        styles: { fontSize: 8, textColor: 40, lineColor: 230, lineWidth: 0.05 },
-                        headStyles: { fillColor: [22, 22, 28], textColor: 255 },
-                        head: [[t('pdf.field.report_date'), 'Country', 'Event', 'Prev']],
-                        body: macro.events.slice(0, 6).map((e) => [
-                            e.date || '—', e.country || '—', e.event || '—', e.previous || '—',
-                        ]),
-                    });
-                    y = pdf.lastAutoTable.finalY + 4;
-                }
-            }
-
-            // ----- Final Verdict -----
-            if (verdict) {
-                if (y > pageH - 50) { pdf.addPage(); y = margin; }
-                pdf.setTextColor(245, 158, 11);
-                pdf.setFont('helvetica', 'bold');
-                pdf.setFontSize(11);
-                pdf.text(t('pdf.section.verdict'), margin, y);
-                y += 6;
-                pdf.setFont('helvetica', 'bold');
-                pdf.setFontSize(14);
-                const verdictColor =
-                    verdict.verdict === 'LONG' ? [16, 185, 129]
-                        : verdict.verdict === 'SHORT' ? [244, 63, 94]
-                            : [245, 158, 11];
-                pdf.setTextColor(...verdictColor);
-                pdf.text(verdict.verdict || '—', margin, y);
-                pdf.setTextColor(80);
-                pdf.setFont('helvetica', 'normal');
-                pdf.setFontSize(9);
-                pdf.text(`${t('pdf.field.confidence')}: ${verdict.confidence ?? '—'}/5`, margin + 30, y);
-                if (verdict.entryPrice) {
-                    pdf.text(`${t('pdf.field.entry')}: ${verdict.entryPrice}`, margin + 70, y);
-                }
-                y += 6;
-                pdf.setTextColor(40);
-                const vLines = pdf.splitTextToSize(verdict.summary || '—', pageW - margin * 2);
-                pdf.text(vLines, margin, y);
-                y += vLines.length * 4 + 4;
-            }
-
-            // ----- COT History table -----
-            if (history && history.length) {
-                if (y > pageH - 60) { pdf.addPage(); y = margin; }
-                pdf.setTextColor(245, 158, 11);
-                pdf.setFont('helvetica', 'bold');
-                pdf.setFontSize(11);
-                pdf.text(t('pdf.section.history'), margin, y);
-                y += 2;
-                autoTable(pdf, {
-                    startY: y + 1,
-                    margin: { left: margin, right: margin },
-                    theme: 'grid',
-                    styles: { fontSize: 8, textColor: 40, lineColor: 220, lineWidth: 0.05 },
-                    headStyles: { fillColor: [22, 22, 28], textColor: 255 },
-                    head: [[
-                        t('modal.col.date'),
-                        t('modal.col.long'),
-                        t('modal.col.short'),
-                        t('modal.col.net'),
-                        t('modal.col.delta'),
-                    ]],
-                    body: history.slice(0, 8).map((h) => [
-                        h.date,
-                        formatNumber(h.long),
-                        formatNumber(h.short),
-                        formatNumber(h.netPosition),
-                        formatSigned(h.wowDelta),
-                    ]),
-                });
-                y = pdf.lastAutoTable.finalY + 6;
-            }
-
-            // ----- Performance R-multiple -----
-            if (perf) {
-                if (y > pageH - 70) { pdf.addPage(); y = margin; }
-                pdf.setTextColor(245, 158, 11);
-                pdf.setFont('helvetica', 'bold');
-                pdf.setFontSize(11);
-                pdf.text(t('pdf.section.performance'), margin, y);
-                y += 2;
-                autoTable(pdf, {
-                    startY: y + 1,
-                    margin: { left: margin, right: margin },
-                    theme: 'grid',
-                    styles: { fontSize: 9, textColor: 40, lineColor: 220, lineWidth: 0.05 },
-                    headStyles: { fillColor: [22, 22, 28], textColor: 255 },
-                    head: [[
-                        t('pdf.stats.total'),
-                        t('pdf.stats.evaluated'),
-                        t('pdf.stats.wins'),
-                        t('pdf.stats.losses'),
-                        t('pdf.stats.winrate'),
-                        t('pdf.stats.cum_r'),
-                        t('pdf.stats.cum_net_r'),
-                    ]],
-                    body: [[
-                        perf.totalVerdicts ?? 0,
-                        perf.evaluated ?? 0,
-                        perf.wins ?? 0,
-                        perf.losses ?? 0,
-                        perf.winRate !== null && perf.winRate !== undefined ? `${perf.winRate}%` : '—',
-                        perf.cumulativeR != null ? `${formatSigned(perf.cumulativeR)}R` : '—',
-                        perf.cumulativeNetR != null ? `${formatSigned(perf.cumulativeNetR)}R` : '—',
-                    ]],
-                });
-                y = pdf.lastAutoTable.finalY + 4;
-
-                if (perf.history && perf.history.length) {
-                    autoTable(pdf, {
-                        startY: y,
-                        margin: { left: margin, right: margin },
-                        theme: 'striped',
-                        styles: { fontSize: 7.5, textColor: 40, lineColor: 230, lineWidth: 0.05 },
-                        headStyles: { fillColor: [22, 22, 28], textColor: 255 },
-                        head: [[
-                            t('modal.perf.col.report'),
-                            t('modal.perf.col.verdict'),
-                            t('modal.perf.col.entry_price'),
-                            t('modal.perf.col.week_min'),
-                            t('modal.perf.col.week_max'),
-                            t('modal.perf.col.mfe'),
-                            t('modal.perf.col.mae'),
-                            t('modal.perf.col.r'),
-                            t('modal.perf.col.net_r'),
-                            t('modal.perf.col.outcome'),
-                        ]],
-                        body: perf.history.slice(0, 25).map((r) => [
-                            r.verdictDate || '—',
-                            r.verdict || '—',
-                            r.entryPrice != null ? Number(r.entryPrice).toFixed(4) : '—',
-                            r.weekMin != null ? Number(r.weekMin).toFixed(4) : '—',
-                            r.weekMax != null ? Number(r.weekMax).toFixed(4) : '—',
-                            r.mfe != null ? Number(r.mfe).toFixed(4) : '—',
-                            r.mae != null ? Number(r.mae).toFixed(4) : '—',
-                            r.rValue != null ? `${r.rValue}` : '—',
-                            r.netR != null ? formatSigned(r.netR) : '—',
-                            r.outcome || '—',
-                        ]),
-                    });
-                }
-            }
-
-            // ----- Footer -----
-            const pageCount = pdf.internal.getNumberOfPages();
-            for (let i = 1; i <= pageCount; i++) {
-                pdf.setPage(i);
-                pdf.setFontSize(7.5);
-                pdf.setTextColor(140);
-                pdf.text(t('pdf.footer'), margin, pageH - 6);
-                pdf.text(`${i} / ${pageCount}`, pageW - margin, pageH - 6, { align: 'right' });
-            }
-
             const fname = `${asset.assetId}_${snapshot.reportDate || 'snapshot'}.pdf`;
             pdf.save(fname);
         } catch (e) {
@@ -461,6 +278,7 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                     onClick={(e) => e.stopPropagation()}
                     className="relative bg-[#0a0a0d] border border-white/10 sm:rounded-[28px] w-full max-w-6xl h-full sm:h-auto sm:max-h-[calc(100vh-3rem)] flex flex-col overflow-hidden shadow-[0_40px_120px_rgba(0,0,0,0.8)]"
                     data-testid="detail-modal"
+                    ref={captureRef}
                 >
                     {/* Header (sticky) */}
                     <div className="shrink-0 flex flex-wrap items-center justify-between gap-4 p-6 sm:p-8 border-b border-white/5">
@@ -1022,54 +840,35 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                                     </div>
                                                 ))}
                                             </div>
-                                            <div className="grid grid-cols-2 gap-3 mb-4">
-                                                <div className="bg-black/30 border border-white/5 rounded-2xl p-3">
-                                                    <div className="text-[10px] tracking-widest uppercase text-gray-500 font-semibold mb-1">
-                                                        {t('modal.perf.r_cumulative')}
-                                                    </div>
-                                                    <div
-                                                        className={cn(
-                                                            'font-mono text-[18px] font-semibold tnum',
-                                                            (performance.cumulativeR ?? 0) >= performance.evaluated
-                                                                ? 'text-[#34d399]'
-                                                                : 'text-[#fb7185]'
-                                                        )}
-                                                    >
-                                                        {performance.cumulativeR != null
-                                                            ? `${formatSigned(performance.cumulativeR)}R`
-                                                            : '—'}
-                                                    </div>
+                                            <div className="bg-black/30 border border-white/5 rounded-2xl p-3 mb-4">
+                                                <div className="text-[10px] tracking-widest uppercase text-gray-500 font-semibold mb-1">
+                                                    {t('modal.perf.r_cumulative')}
                                                 </div>
-                                                <div className="bg-black/30 border border-white/5 rounded-2xl p-3">
-                                                    <div className="text-[10px] tracking-widest uppercase text-gray-500 font-semibold mb-1">
-                                                        {t('modal.perf.r_net_cumulative')}
-                                                    </div>
-                                                    <div
-                                                        className={cn(
-                                                            'font-mono text-[18px] font-semibold tnum',
-                                                            (performance.cumulativeNetR ?? 0) >= 0
-                                                                ? 'text-[#34d399]'
-                                                                : 'text-[#fb7185]'
-                                                        )}
-                                                    >
-                                                        {performance.cumulativeNetR != null
-                                                            ? `${formatSigned(performance.cumulativeNetR)}R`
-                                                            : '—'}
-                                                    </div>
+                                                <div
+                                                    className={cn(
+                                                        'font-mono text-[22px] font-semibold tnum',
+                                                        (performance.cumulativeR ?? 0) > 0 && 'text-[#34d399]',
+                                                        (performance.cumulativeR ?? 0) < 0 && 'text-[#fb7185]',
+                                                        (performance.cumulativeR ?? 0) === 0 && 'text-gray-300'
+                                                    )}
+                                                >
+                                                    {performance.cumulativeR != null
+                                                        ? `${formatSigned(performance.cumulativeR)}R`
+                                                        : '—'}
                                                 </div>
                                             </div>
                                             {performance.history.length > 0 ? (
                                                 <>
-                                                    {/* R Cumulative curve */}
+                                                    {/* R Cumulative curve (+1 / -1 per trade) */}
                                                     {(() => {
                                                         const evaluated = [...performance.history]
                                                             .reverse()
-                                                            .filter((r) => r.netR !== null && r.netR !== undefined);
+                                                            .filter((r) => r.r !== null && r.r !== undefined);
                                                         if (evaluated.length === 0) return null;
                                                         let cum = 0;
                                                         const curve = evaluated.map((r) => {
-                                                            cum += r.netR;
-                                                            return { date: r.verdictDate, equity: Number(cum.toFixed(2)) };
+                                                            cum += r.r;
+                                                            return { date: r.verdictDate, equity: cum };
                                                         });
                                                         const showCurve = curve.slice(-50);
                                                         return (
@@ -1084,10 +883,12 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                                                     <span
                                                                         className={cn(
                                                                             'font-mono text-[14px] font-semibold tnum',
-                                                                            cum >= 0 ? 'text-[#34d399]' : 'text-[#fb7185]'
+                                                                            cum > 0 && 'text-[#34d399]',
+                                                                            cum < 0 && 'text-[#fb7185]',
+                                                                            cum === 0 && 'text-gray-300'
                                                                         )}
                                                                     >
-                                                                        {formatSigned(cum.toFixed(2))}R
+                                                                        {formatSigned(cum)}R
                                                                     </span>
                                                                 </div>
                                                                 <div className="h-[160px]">
@@ -1129,7 +930,7 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                                                                 formatter={(v) => `${v}R`}
                                                                             />
                                                                             <Area
-                                                                                type="monotone"
+                                                                                type="stepAfter"
                                                                                 dataKey="equity"
                                                                                 stroke="#f59e0b"
                                                                                 strokeWidth={2}
@@ -1154,10 +955,7 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                                                 <th className="px-2 py-2 text-right">{t('modal.perf.col.entry_price')}</th>
                                                                 <th className="px-2 py-2 text-right">{t('modal.perf.col.week_min')}</th>
                                                                 <th className="px-2 py-2 text-right">{t('modal.perf.col.week_max')}</th>
-                                                                <th className="px-2 py-2 text-right">{t('modal.perf.col.mfe')}</th>
-                                                                <th className="px-2 py-2 text-right">{t('modal.perf.col.mae')}</th>
                                                                 <th className="px-2 py-2 text-right">{t('modal.perf.col.r')}</th>
-                                                                <th className="px-2 py-2 text-right">{t('modal.perf.col.net_r')}</th>
                                                                 <th className="px-2 py-2 text-left">{t('modal.perf.col.outcome')}</th>
                                                             </tr>
                                                         </thead>
@@ -1190,24 +988,16 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                                                     <td className="px-2 py-2 text-right text-gray-400">
                                                                         {r.weekMax != null ? Number(r.weekMax).toFixed(4) : '—'}
                                                                     </td>
-                                                                    <td className="px-2 py-2 text-right text-[#34d399]/90">
-                                                                        {r.mfe != null ? Number(r.mfe).toFixed(4) : '—'}
-                                                                    </td>
-                                                                    <td className="px-2 py-2 text-right text-[#fb7185]/90">
-                                                                        {r.mae != null ? Number(r.mae).toFixed(4) : '—'}
-                                                                    </td>
-                                                                    <td className="px-2 py-2 text-right text-amber-300 font-semibold">
-                                                                        {r.rValue != null ? r.rValue.toFixed(2) : '—'}
-                                                                    </td>
                                                                     <td
                                                                         className={cn(
                                                                             'px-2 py-2 text-right font-semibold',
-                                                                            r.netR == null && 'text-gray-500',
-                                                                            r.netR > 0 && 'text-[#34d399]',
-                                                                            r.netR < 0 && 'text-[#fb7185]'
+                                                                            r.r == null && 'text-gray-500',
+                                                                            r.r > 0 && 'text-[#34d399]',
+                                                                            r.r < 0 && 'text-[#fb7185]',
+                                                                            r.r === 0 && 'text-gray-300'
                                                                         )}
                                                                     >
-                                                                        {r.netR != null ? `${formatSigned(r.netR)}R` : '—'}
+                                                                        {r.r != null ? `${formatSigned(r.r)}R` : '—'}
                                                                     </td>
                                                                     <td
                                                                         className={cn(
@@ -1215,7 +1005,8 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                                                             r.outcome === 'WIN' && 'text-[#34d399]',
                                                                             r.outcome === 'LOSS' && 'text-[#fb7185]',
                                                                             r.outcome === 'PENDING' && 'text-gray-500',
-                                                                            r.outcome === 'NEUTRAL' && 'text-amber-300'
+                                                                            r.outcome === 'NEUTRAL' && 'text-amber-300',
+                                                                            r.outcome === 'FLAT' && 'text-gray-300'
                                                                         )}
                                                                     >
                                                                         {r.outcome}

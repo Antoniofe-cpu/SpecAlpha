@@ -41,6 +41,15 @@
 - Backend tests: 12/12 PASS
 - Frontend: 95% (only cold-cache transient banner; resolved on subsequent loads)
 
+## Latest Session (Feb 2026) — Round 3 (semplificazione)
+- **Performance R semplice**:
+  - Una WIN vale **+1R**, una LOSS vale **−1R**, FLAT = 0R (rare).
+  - WIN se MFE > MAE nella settimana lun→ven, LOSS se MAE > MFE.
+  - **R cumulativo** = somma dei +1/−1 (= wins − losses).
+  - Rimosse colonne MFE/MAE/Net R/R-multiple — tabella ridotta a Report/Verdetto/Entry/Week Low/Week High/R/Outcome.
+  - Disclaimer riscritto.
+- **PDF design-fedele**: tornato a html2canvas+jspdf, ma con **clone offscreen** del modal — risolve il taglio a metà (clone con `maxHeight:none`, `overflow:visible`, scrollEl flatten). Il PDF mantiene il design originale (header, chart, performance). Multi-pagina A4 portrait. Verificato download `{ASSET}_{reportDate}.pdf`.
+
 ## Latest Session (Feb 2026) — Round 2
 - **Performance overhaul**:
   - Logica trading aggiornata: entry = lunedì close, risk window = lun→ven, **MFE/MAE** sui min/max settimanali (non più exit fisso al venerdì close).
