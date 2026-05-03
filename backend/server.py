@@ -480,15 +480,158 @@ async def verdict_performance(asset_id: str) -> Dict[str, Any]:
       - COT is published Friday (data as of Tuesday). Trader enters MONDAY after publication.
       - Exit on FRIDAY close of the same week.
       - Entry/Exit prices fetched from Yahoo Finance daily close.
+    Auto-backfills synthetic verdicts (rule-based, NO LLM) for last 20 reports if history empty.
     """
     asset_id = asset_id.upper()
     if asset_id not in ASSET_MAP:
         raise HTTPException(status_code=404, detail="Unknown asset")
 
+    # Auto-backfill last 20 COT reports with deterministic synthetic verdicts (no LLM calls)
+    await _backfill_verdicts(asset_id, depth=20)
+
     cursor = db[VERDICT_HISTORY_COLL].find(
         {"assetId": asset_id}, {"_id": 0}
-    ).sort("savedAt", 1)
+    ).sort("entryReportDate", 1)
     verdicts = await cursor.to_list(length=500)
+
+    # Deduplicate by entryReportDate (keep first verdict per COT report)
+    seen_entries = set()
+    unique_verdicts = []
+    for v in verdicts:
+        ed = v.get("entryReportDate")
+        if not ed or ed in seen_entries:
+            continue
+        seen_entries.add(ed)
+        unique_verdicts.append(v)
+
+    # Batch-fetch daily prices covering all verdict weeks
+    prices: Dict[str, float] = {}
+    if unique_verdicts and asset_id in YAHOO_SYMBOL:
+        dates = [v["entryReportDate"] for v in unique_verdicts if v.get("entryReportDate")]
+        if dates:
+            min_d = datetime.strptime(min(dates), "%Y-%m-%d")
+            max_d = datetime.strptime(max(dates), "%Y-%m-%d") + timedelta(days=14)
+            prices = await fetch_daily_closes(asset_id, min_d - timedelta(days=3), max_d)
+
+    results = []
+    wins = losses = pending = 0
+    pnl_sum = 0.0
+    for v in unique_verdicts:
+        report_date = v.get("entryReportDate")
+        monday = next_monday(report_date)
+        friday = following_friday(monday)
+        entry = nearest_close_on_or_after(prices, monday)
+        exit_ = nearest_close_on_or_before(prices, friday)
+        entry_price = entry[1] if entry else None
+        exit_price = exit_[1] if exit_ else None
+        entry_date = entry[0] if entry else monday
+        exit_date = exit_[0] if exit_ else None
+
+        pnl_pct = None
+        outcome = "PENDING"
+        if entry_price is not None and exit_price is not None:
+            direction = 1 if v.get("verdict") == "LONG" else (-1 if v.get("verdict") == "SHORT" else 0)
+            if direction == 0:
+                outcome = "NEUTRAL"
+            else:
+                pnl_pct = round(((exit_price - entry_price) / entry_price) * 100 * direction, 2)
+                if pnl_pct > 0:
+                    wins += 1
+                    outcome = "WIN"
+                elif pnl_pct < 0:
+                    losses += 1
+                    outcome = "LOSS"
+                else:
+                    outcome = "FLAT"
+                pnl_sum += pnl_pct
+        else:
+            pending += 1
+
+        results.append({
+            "verdictDate": report_date,
+            "verdict": v.get("verdict"),
+            "confidence": v.get("confidence"),
+            "entryDate": entry_date,
+            "entryPrice": entry_price,
+            "exitDate": exit_date,
+            "exitPrice": exit_price,
+            "pnlPct": pnl_pct,
+            "outcome": outcome,
+            "summary": v.get("summary"),
+            "synthetic": v.get("synthetic", False),
+        })
+
+    total_evaluated = wins + losses
+    win_rate = round((wins / total_evaluated) * 100, 1) if total_evaluated else None
+    return {
+        "assetId": asset_id,
+        "totalVerdicts": len(results),
+        "evaluated": total_evaluated,
+        "wins": wins,
+        "losses": losses,
+        "pending": pending,
+        "winRate": win_rate,
+        "cumulativePnlPct": round(pnl_sum, 2),
+        "history": list(reversed(results))[:200],
+    }
+
+
+def _synthetic_verdict(snapshot: Dict[str, Any]) -> Dict[str, Any]:
+    """Deterministic rule-based verdict from COT metrics, NO LLM."""
+    net = snapshot.get("netPosition", 0)
+    delta = snapshot.get("wowDelta", 0)
+    long = snapshot.get("long", 0) or 1
+    short = snapshot.get("short", 0) or 1
+    total = long + short or 1
+    net_ratio = net / total
+    delta_ratio = delta / total
+
+    # Confidence based on magnitude of net + delta
+    conf = 1
+    mag = abs(net_ratio) * 2 + abs(delta_ratio) * 3
+    if mag > 0.2: conf = 2
+    if mag > 0.4: conf = 3
+    if mag > 0.6: conf = 4
+    if mag > 0.9: conf = 5
+
+    if net > 0 and delta > 0:
+        verdict = "LONG"
+    elif net < 0 and delta < 0:
+        verdict = "SHORT"
+    elif abs(delta_ratio) < 0.03:
+        verdict = "WAIT"
+    else:
+        # Divergence: trust momentum (delta) over bias (net)
+        verdict = "LONG" if delta > 0 else "SHORT"
+    return {"verdict": verdict, "confidence": conf}
+
+
+async def _backfill_verdicts(asset_id: str, depth: int = 20) -> None:
+    """Create rule-based synthetic verdicts for the last N COT reports if missing."""
+    existing = await db[VERDICT_HISTORY_COLL].distinct("entryReportDate", {"assetId": asset_id})
+    existing_set = set(existing)
+    # Use cached or fresh COT history
+    hist = await cot_history(asset_id, limit=depth)
+    to_insert = []
+    for row in hist:
+        rd = row.get("date")
+        if not rd or rd in existing_set:
+            continue
+        syn = _synthetic_verdict(row)
+        to_insert.append({
+            "assetId": asset_id,
+            "verdict": syn["verdict"],
+            "confidence": syn["confidence"],
+            "summary": f"Synthetic · Net {row.get('netPosition', 0):+,} · Δ {row.get('wowDelta', 0):+,}",
+            "entryPrice": row.get("price"),
+            "entryReportDate": rd,
+            "priceChangePct": None,
+            "generatedAt": _now().isoformat(),
+            "savedAt": _now().isoformat(),
+            "synthetic": True,
+        })
+    if to_insert:
+        await db[VERDICT_HISTORY_COLL].insert_many(to_insert)
 
     # Deduplicate by entryReportDate (keep first verdict per COT report)
     seen_entries = set()
