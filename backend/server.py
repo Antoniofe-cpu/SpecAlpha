@@ -37,6 +37,7 @@ from macro_scraper import (
 )
 from price_scraper import (
     fetch_daily_closes,
+    fetch_daily_ohlc,
     next_monday,
     following_friday,
     nearest_close_on_or_after,
@@ -562,17 +563,17 @@ async def verdict_performance(asset_id: str) -> Dict[str, Any]:
 
     unique_verdicts = unique_verdicts[-50:]
 
-    prices: Dict[str, float] = {}
+    # Fetch daily OHLC (use high/low to capture intra-day extremes)
+    ohlc: Dict[str, Dict[str, float]] = {}
     if unique_verdicts and asset_id in YAHOO_SYMBOL:
         dates = [v["entryReportDate"] for v in unique_verdicts if v.get("entryReportDate")]
         if dates:
             min_d = datetime.strptime(min(dates), "%Y-%m-%d")
-            # Need prices up to 1 week after the latest report date (A2 window)
             max_d = datetime.strptime(max(dates), "%Y-%m-%d") + timedelta(days=14)
-            prices = await fetch_daily_closes(asset_id, min_d - timedelta(days=3), max_d)
+            ohlc = await fetch_daily_ohlc(asset_id, min_d - timedelta(days=3), max_d)
 
-    def _week_prices(start_date: str, end_date: str):
-        """Return ordered list of (date_iso, price) for trading days within [start, end]."""
+    def _week_days(start_date: str, end_date: str):
+        """Return ordered list of (date_iso, high, low) for trading days within [start, end]."""
         try:
             sd = datetime.strptime(start_date, "%Y-%m-%d").date()
             ed = datetime.strptime(end_date, "%Y-%m-%d").date()
@@ -582,45 +583,46 @@ async def verdict_performance(asset_id: str) -> Dict[str, Any]:
         cur = sd
         while cur <= ed:
             key = cur.isoformat()
-            if key in prices:
-                out.append((key, prices[key]))
+            row = ohlc.get(key)
+            if row and row.get("high") is not None and row.get("low") is not None:
+                out.append((key, row["high"], row["low"]))
             cur = cur + timedelta(days=1)
         return out
 
     def _chronological_week_trade(week: list, direction: str):
-        """Realistic trade: look at the chronological order of weekly min and max.
-        Returns (entry_date, entry_price, exit_date, exit_price) or None.
-
+        """Uses intra-day high/low. For LONG the weekly low is the best entry
+        (cheapest price of the week) and the weekly high is the best exit.
+        Outcome depends on chronological order of the days hosting those extremes.
         LONG:
-          - If min comes before max → structure bullish: entry=min, exit=max (WIN).
-          - If max comes before min → structure bearish: entry=max, exit=min (LOSS).
+          - if low day comes before high day → WIN (entry=low, exit=high)
+          - else trader is caught at the high, drags to the low → LOSS (entry=high, exit=low)
         SHORT: mirrored.
         """
         if len(week) < 2:
             return None
-        prices_list = [p for _, p in week]
-        min_idx = prices_list.index(min(prices_list))
-        max_idx = prices_list.index(max(prices_list))
+        # Indices of the day hosting the absolute weekly low and high
+        min_idx = min(range(len(week)), key=lambda i: week[i][2])  # lowest low
+        max_idx = max(range(len(week)), key=lambda i: week[i][1])  # highest high
         if min_idx == max_idx:
-            return None  # flat day
+            return None
         if direction == "LONG":
             if min_idx < max_idx:
-                ed_in, ep_in = week[min_idx]
-                ed_out, ep_out = week[max_idx]
+                ed_in, _, entry_low = week[min_idx]
+                ed_out, exit_high, _ = week[max_idx]
+                return ed_in, entry_low, ed_out, exit_high
             else:
-                # Bearish structure: trader buys the early high, sells the later low → LOSS
-                ed_in, ep_in = week[max_idx]
-                ed_out, ep_out = week[min_idx]
+                ed_in, entry_high, _ = week[max_idx]
+                ed_out, _, exit_low = week[min_idx]
+                return ed_in, entry_high, ed_out, exit_low
         else:  # SHORT
             if max_idx < min_idx:
-                # Bearish structure: sell the early high, cover the later low → WIN
-                ed_in, ep_in = week[max_idx]
-                ed_out, ep_out = week[min_idx]
+                ed_in, entry_high, _ = week[max_idx]
+                ed_out, _, exit_low = week[min_idx]
+                return ed_in, entry_high, ed_out, exit_low
             else:
-                # Bullish structure: sells the early low, covers the later high → LOSS
-                ed_in, ep_in = week[min_idx]
-                ed_out, ep_out = week[max_idx]
-        return ed_in, ep_in, ed_out, ep_out
+                ed_in, _, entry_low = week[min_idx]
+                ed_out, exit_high, _ = week[max_idx]
+                return ed_in, entry_low, ed_out, exit_high
 
     results = []
     wins = losses = pending = 0
@@ -630,9 +632,10 @@ async def verdict_performance(asset_id: str) -> Dict[str, Any]:
         report_date = v.get("entryReportDate")
         week_mon = next_monday(report_date)
         week_fri = following_friday(week_mon)
-        week_days = _week_prices(week_mon, week_fri)
-        w_min = min((p for _, p in week_days), default=None)
-        w_max = max((p for _, p in week_days), default=None)
+        week = _week_days(week_mon, week_fri)
+        # Informational week low/high (true daily high/low, not close)
+        w_min = min((lo for _, _, lo in week), default=None)
+        w_max = max((hi for _, hi, _ in week), default=None)
 
         verdict_dir = v.get("verdict")
         entry_price = None
@@ -644,7 +647,7 @@ async def verdict_performance(asset_id: str) -> Dict[str, Any]:
         outcome = "PENDING"
 
         if verdict_dir in ("LONG", "SHORT"):
-            best = _chronological_week_trade(week_days, verdict_dir)
+            best = _chronological_week_trade(week, verdict_dir)
             if best is not None:
                 entry_date, entry_price, exit_date, exit_price = best
                 direction = 1 if verdict_dir == "LONG" else -1

@@ -45,6 +45,12 @@ YAHOO_SYMBOL = {
 
 async def fetch_daily_closes(asset_id: str, start: datetime, end: datetime) -> Dict[str, float]:
     """Return {yyyy-mm-dd: close} for the date range [start, end] (inclusive)."""
+    ohlc = await fetch_daily_ohlc(asset_id, start, end)
+    return {d: row["close"] for d, row in ohlc.items() if row.get("close") is not None}
+
+
+async def fetch_daily_ohlc(asset_id: str, start: datetime, end: datetime) -> Dict[str, Dict[str, float]]:
+    """Return {yyyy-mm-dd: {open, high, low, close}} for the date range."""
     sym = YAHOO_SYMBOL.get(asset_id)
     if not sym:
         return {}
@@ -64,16 +70,27 @@ async def fetch_daily_closes(asset_id: str, start: datetime, end: datetime) -> D
             if not res:
                 return {}
             ts = res[0].get("timestamp", []) or []
-            closes = (((res[0].get("indicators") or {}).get("quote") or [{}])[0]).get("close", []) or []
-            out: Dict[str, float] = {}
-            for t, c in zip(ts, closes):
+            quote = (((res[0].get("indicators") or {}).get("quote") or [{}])[0])
+            opens = quote.get("open", []) or []
+            highs = quote.get("high", []) or []
+            lows = quote.get("low", []) or []
+            closes = quote.get("close", []) or []
+            out: Dict[str, Dict[str, float]] = {}
+            n = len(ts)
+            for i in range(n):
+                c = closes[i] if i < len(closes) else None
                 if c is None:
                     continue
-                d = datetime.fromtimestamp(t, tz=timezone.utc).strftime("%Y-%m-%d")
-                out[d] = float(c)
+                d = datetime.fromtimestamp(ts[i], tz=timezone.utc).strftime("%Y-%m-%d")
+                out[d] = {
+                    "open":  float(opens[i])  if i < len(opens)  and opens[i]  is not None else None,
+                    "high":  float(highs[i])  if i < len(highs)  and highs[i]  is not None else None,
+                    "low":   float(lows[i])   if i < len(lows)   and lows[i]   is not None else None,
+                    "close": float(c),
+                }
             return out
     except Exception as e:  # noqa: BLE001
-        logger.warning("yahoo fetch failed %s: %s", asset_id, e)
+        logger.warning("yahoo ohlc fetch failed %s: %s", asset_id, e)
         return {}
 
 
