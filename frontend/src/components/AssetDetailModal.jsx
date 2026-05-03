@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     AreaChart,
@@ -31,8 +31,8 @@ import {
     EyeOff,
     TrendingDown,
 } from 'lucide-react';
-import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { fetchHistory, fetchMacro, fetchVerdict, fetchVerdictPerformance } from '../api';
 import { cn, formatNumber, formatSigned, getTrendAnalysis, TONE_CLASSES } from '../utils';
 import { useT } from '../i18n';
@@ -45,13 +45,12 @@ const SERIES = [
 ];
 
 export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleFav }) {
-    const { t } = useT();
+    const { t, lang } = useT();
     const [history, setHistory] = useState([]);
     const [loading, setLoading] = useState(false);
     const [exporting, setExporting] = useState(false);
     const [windowSize, setWindowSize] = useState(26);
     const [snapshot, setSnapshot] = useState(asset);
-    const captureRef = useRef(null);
     const [visible, setVisible] = useState({
         netPosition: true,
         long: false,
@@ -111,16 +110,16 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
         setVerdict(null);
         setPerformance(null);
         setShowPerformance(false);
-        fetchMacro(asset.assetId)
+        fetchMacro(asset.assetId, false, lang)
             .then((d) => !cancelled && setMacro(d))
             .catch(() => {})
             .finally(() => !cancelled && setMacroLoading(false));
-        fetchVerdict(asset.assetId)
+        fetchVerdict(asset.assetId, false, lang)
             .then((d) => !cancelled && setVerdict(d))
             .catch(() => {})
             .finally(() => !cancelled && setVerdictLoading(false));
         return () => { cancelled = true; };
-    }, [asset?.assetId]);
+    }, [asset?.assetId, lang]);
 
     const loadPerformance = async () => {
         if (!asset?.assetId) return;
@@ -144,73 +143,453 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
     };
 
     const handleExport = async () => {
-        if (!captureRef.current || exporting) return;
+        if (exporting) return;
         setExporting(true);
         try {
-            // Make sure performance panel is rendered with data
-            if (!showPerformance) setShowPerformance(true);
-            if (!performance) {
-                try { await loadPerformance(); } catch {}
+            // Make sure performance data is available
+            let perf = performance;
+            if (!perf) {
+                try {
+                    perf = await fetchVerdictPerformance(asset.assetId);
+                    setPerformance(perf);
+                } catch (e) { /* noop */ }
             }
-            // Wait two frames for Recharts/SVG to fully render
-            await new Promise((r) => setTimeout(r, 450));
 
-            const node = captureRef.current;
-            const rect = node.getBoundingClientRect();
-
-            // Clone the node so we can flatten it offscreen without disturbing the live UI
-            const clone = node.cloneNode(true);
-            clone.style.position = 'fixed';
-            clone.style.top = '0';
-            clone.style.left = '-100000px';
-            clone.style.width = rect.width + 'px';
-            clone.style.maxHeight = 'none';
-            clone.style.height = 'auto';
-            clone.style.overflow = 'visible';
-            clone.style.borderRadius = '0px';
-            clone.style.transform = 'none';
-            // Flatten the inner scrollable container
-            const scrollEl = clone.querySelector('.flex-1.overflow-y-auto');
-            if (scrollEl) {
-                scrollEl.style.overflow = 'visible';
-                scrollEl.style.maxHeight = 'none';
-                scrollEl.style.flex = 'none';
-            }
-            // Hide the close (X) and PDF buttons in the clone (no need in PDF)
-            clone.querySelectorAll('[data-testid="modal-close-btn"], [data-testid="modal-export-btn"]').forEach((el) => {
-                el.style.visibility = 'hidden';
-            });
-            document.body.appendChild(clone);
-            await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-
-            const canvas = await html2canvas(clone, {
-                backgroundColor: '#0a0a0d',
-                scale: 2,
-                useCORS: true,
-                logging: false,
-                width: clone.scrollWidth,
-                height: clone.scrollHeight,
-                windowWidth: clone.scrollWidth,
-                windowHeight: clone.scrollHeight,
-            });
-            document.body.removeChild(clone);
-
-            const imgData = canvas.toDataURL('image/png');
             const pdf = new jsPDF('p', 'mm', 'a4');
-            const pageW = pdf.internal.pageSize.getWidth();
-            const pageH = pdf.internal.pageSize.getHeight();
-            const imgW = pageW;
-            const imgH = (canvas.height * imgW) / canvas.width;
-            let heightLeft = imgH;
-            let position = 0;
-            pdf.addImage(imgData, 'PNG', 0, position, imgW, imgH);
-            heightLeft -= pageH;
-            while (heightLeft > 0) {
-                position = heightLeft - imgH;
-                pdf.addPage();
-                pdf.addImage(imgData, 'PNG', 0, position, imgW, imgH);
-                heightLeft -= pageH;
+            const W = pdf.internal.pageSize.getWidth();
+            const H = pdf.internal.pageSize.getHeight();
+            const M = 12;
+            let y = 0;
+
+            // Brand colors
+            const BG = [10, 10, 13];
+            const PANEL = [14, 14, 20];
+            const BORDER = [38, 38, 50];
+            const AMBER = [245, 158, 11];
+            const GREEN = [52, 211, 153];
+            const RED = [251, 113, 133];
+            const TEXT = [232, 232, 240];
+            const MUTED = [140, 140, 160];
+
+            const setText = (rgb) => pdf.setTextColor(rgb[0], rgb[1], rgb[2]);
+            const setFill = (rgb) => pdf.setFillColor(rgb[0], rgb[1], rgb[2]);
+            const setDraw = (rgb) => pdf.setDrawColor(rgb[0], rgb[1], rgb[2]);
+
+            const fillPage = () => {
+                setFill(BG);
+                pdf.rect(0, 0, W, H, 'F');
+            };
+
+            const ensurePage = (need) => {
+                if (y + need > H - 16) {
+                    pdf.addPage();
+                    fillPage();
+                    y = M;
+                }
+            };
+
+            // Rounded panel
+            const panel = (x, py, w, h, fill = PANEL, border = BORDER) => {
+                setFill(fill);
+                setDraw(border);
+                pdf.setLineWidth(0.2);
+                pdf.roundedRect(x, py, w, h, 3, 3, 'FD');
+            };
+
+            // ---------- Page 1: Header + Snapshot ----------
+            fillPage();
+
+            // Top header band
+            setFill([6, 6, 9]);
+            pdf.rect(0, 0, W, 30, 'F');
+            // brand stripe
+            setFill(AMBER);
+            pdf.rect(0, 30, W, 0.6, 'F');
+
+            setText(AMBER);
+            pdf.setFont('helvetica', 'bold');
+            pdf.setFontSize(8);
+            pdf.text('SPECULATIVE ALPHA', M, 9);
+
+            setText(TEXT);
+            pdf.setFont('helvetica', 'bold');
+            pdf.setFontSize(20);
+            pdf.text(`${snapshot.name} · ${asset.assetId}`, M, 20);
+            setText(MUTED);
+            pdf.setFont('helvetica', 'normal');
+            pdf.setFontSize(8.5);
+            pdf.text(
+                `${snapshot.type.toUpperCase()} · Report ${snapshot.reportDate}`,
+                M, 26
+            );
+            const stamp = new Date().toLocaleString();
+            pdf.setFont('helvetica', 'normal');
+            pdf.setFontSize(8);
+            setText(MUTED);
+            pdf.text(`${t('pdf.generated')}: ${stamp}`, W - M, 9, { align: 'right' });
+
+            y = 38;
+
+            // ---------- Top row: 3 panels (Sentiment | Net Position | Macro Insight) ----------
+            const colW = (W - M * 2 - 4 * 2) / 3;
+            const topPanelH = 38;
+            const trendForPdf = getTrendAnalysis(snapshot);
+
+            // Sentiment panel
+            panel(M, y, colW, topPanelH);
+            setText(MUTED);
+            pdf.setFont('helvetica', 'bold');
+            pdf.setFontSize(7.5);
+            pdf.text(t('modal.sentiment').toUpperCase(), M + 4, y + 6);
+            const tone = trendForPdf.tone;
+            const toneColor =
+                tone === 'bullish' ? GREEN
+                    : tone === 'bearish' ? RED
+                        : tone === 'accumulation' ? GREEN
+                            : tone === 'distribution' ? RED
+                                : AMBER;
+            setText(toneColor);
+            pdf.setFont('helvetica', 'bold');
+            pdf.setFontSize(16);
+            pdf.text(t(trendForPdf.signalKey), M + 4, y + 17);
+            setText(MUTED);
+            pdf.setFont('helvetica', 'normal');
+            pdf.setFontSize(8);
+            pdf.text(`${t('modal.long_term')} ${trendForPdf.longTerm}`, M + 4, y + 25);
+            pdf.text(`${t('modal.short_term')} ${trendForPdf.shortTerm}`, M + 4, y + 31);
+
+            // Net Position panel
+            const x2 = M + colW + 4;
+            panel(x2, y, colW, topPanelH);
+            setText(MUTED);
+            pdf.setFont('helvetica', 'bold');
+            pdf.setFontSize(7.5);
+            pdf.text(t('modal.net_position').toUpperCase(), x2 + 4, y + 6);
+            const netColor = (snapshot.netPosition || 0) >= 0 ? GREEN : RED;
+            setText(netColor);
+            pdf.setFont('helvetica', 'bold');
+            pdf.setFontSize(16);
+            pdf.text(formatSigned(snapshot.netPosition), x2 + 4, y + 17);
+            setText(MUTED);
+            pdf.setFont('helvetica', 'normal');
+            pdf.setFontSize(8);
+            pdf.text(`Δ WoW ${formatSigned(snapshot.wowDelta)}`, x2 + 4, y + 25);
+            pdf.text(
+                `${t('modal.col.long')} ${formatNumber(snapshot.long)} · ${t('modal.col.short')} ${formatNumber(snapshot.short)}`,
+                x2 + 4, y + 31
+            );
+
+            // Macro Intelligence panel (asset.macro)
+            const x3 = M + (colW + 4) * 2;
+            panel(x3, y, colW, topPanelH, [22, 18, 6], [110, 80, 0]);
+            setText(AMBER);
+            pdf.setFont('helvetica', 'bold');
+            pdf.setFontSize(7.5);
+            pdf.text(t('modal.macro_intel').toUpperCase(), x3 + 4, y + 6);
+            setText(TEXT);
+            pdf.setFont('helvetica', 'italic');
+            pdf.setFontSize(8.5);
+            const macroLines = pdf.splitTextToSize(`"${snapshot.macro || '—'}"`, colW - 8);
+            pdf.text(macroLines.slice(0, 5), x3 + 4, y + 12);
+
+            y += topPanelH + 6;
+
+            // ---------- Macro Sentiment (full width) ----------
+            ensurePage(46);
+            const macroH = 42;
+            panel(M, y, W - M * 2, macroH);
+            setText([56, 189, 248]); // sky-400
+            pdf.setFont('helvetica', 'bold');
+            pdf.setFontSize(8);
+            const macroTitle = `${t('modal.macro_sentiment').toUpperCase()}  ·  ${(macro?.eventCount ?? 0)} ${t('modal.events').toUpperCase()}`;
+            pdf.text(macroTitle, M + 4, y + 6);
+            setText(TEXT);
+            pdf.setFont('helvetica', 'normal');
+            pdf.setFontSize(9);
+            const ml = pdf.splitTextToSize(macro?.summary || t('modal.macro_loading'), W - M * 2 - 8);
+            pdf.text(ml.slice(0, 6), M + 4, y + 12);
+            y += macroH + 6;
+
+            // ---------- Final Verdict ----------
+            ensurePage(46);
+            const verdictH = 42;
+            panel(M, y, W - M * 2, verdictH);
+            setText(AMBER);
+            pdf.setFont('helvetica', 'bold');
+            pdf.setFontSize(8);
+            pdf.text(t('modal.final_verdict').toUpperCase(), M + 4, y + 6);
+            const verdictColor =
+                verdict?.verdict === 'LONG' ? GREEN
+                    : verdict?.verdict === 'SHORT' ? RED
+                        : AMBER;
+            setText(verdictColor);
+            pdf.setFont('helvetica', 'bold');
+            pdf.setFontSize(22);
+            pdf.text(verdict?.verdict || '—', M + 4, y + 18);
+            setText(MUTED);
+            pdf.setFont('helvetica', 'normal');
+            pdf.setFontSize(8);
+            pdf.text(`${t('modal.confidence')} ${verdict?.confidence ?? '—'}/5`, M + 36, y + 18);
+            if (verdict?.entryPrice) {
+                pdf.text(`${t('modal.entry')} ${verdict.entryPrice}`, M + 60, y + 18);
             }
+            setText(TEXT);
+            pdf.setFont('helvetica', 'italic');
+            pdf.setFontSize(9);
+            const vl = pdf.splitTextToSize(verdict?.summary || '—', W - M * 2 - 8);
+            pdf.text(vl.slice(0, 5), M + 4, y + 26);
+            y += verdictH + 8;
+
+            // ---------- COT History table ----------
+            ensurePage(50);
+            setText(TEXT);
+            pdf.setFont('helvetica', 'bold');
+            pdf.setFontSize(11);
+            pdf.text(t('modal.history_table'), M, y);
+            setText(MUTED);
+            pdf.setFont('helvetica', 'normal');
+            pdf.setFontSize(8);
+            pdf.text(t('modal.history_subtitle'), M, y + 4);
+            y += 7;
+            if (history && history.length) {
+                autoTable(pdf, {
+                    startY: y,
+                    margin: { left: M, right: M },
+                    theme: 'plain',
+                    styles: {
+                        fontSize: 8,
+                        textColor: TEXT,
+                        cellPadding: { top: 2, bottom: 2, left: 3, right: 3 },
+                        fillColor: PANEL,
+                        lineColor: BORDER,
+                        lineWidth: 0.05,
+                    },
+                    headStyles: {
+                        fillColor: [6, 6, 9],
+                        textColor: AMBER,
+                        fontStyle: 'bold',
+                        fontSize: 7.5,
+                    },
+                    alternateRowStyles: { fillColor: [16, 16, 22] },
+                    head: [[
+                        t('modal.col.date'),
+                        t('modal.col.long'),
+                        t('modal.col.short'),
+                        t('modal.col.net'),
+                        t('modal.col.delta'),
+                    ]],
+                    body: history.slice(0, 8).map((h) => [
+                        h.date,
+                        formatNumber(h.long),
+                        formatNumber(h.short),
+                        formatNumber(h.netPosition),
+                        formatSigned(h.wowDelta),
+                    ]),
+                    didParseCell: (data) => {
+                        if (data.section === 'body' && data.column.index === 4) {
+                            const v = parseFloat(String(data.cell.text[0]).replace(/[+,]/g, ''));
+                            data.cell.styles.textColor = v >= 0 ? GREEN : RED;
+                            data.cell.styles.fontStyle = 'bold';
+                        }
+                    },
+                });
+                y = pdf.lastAutoTable.finalY + 8;
+            }
+
+            // ---------- Performance R Panel ----------
+            ensurePage(95);
+            setText(TEXT);
+            pdf.setFont('helvetica', 'bold');
+            pdf.setFontSize(11);
+            pdf.text(t('modal.perf_title'), M, y);
+            y += 5;
+            setText(MUTED);
+            pdf.setFont('helvetica', 'normal');
+            pdf.setFontSize(7.5);
+            const logicLines = pdf.splitTextToSize(t('modal.perf_logic_r'), W - M * 2);
+            pdf.text(logicLines, M, y);
+            y += logicLines.length * 3.2 + 2;
+            setText([200, 160, 60]);
+            pdf.setFont('helvetica', 'italic');
+            pdf.setFontSize(7);
+            const noteLines = pdf.splitTextToSize(t('modal.perf_synth_note_r'), W - M * 2);
+            pdf.text(noteLines, M, y);
+            y += noteLines.length * 3 + 4;
+
+            if (perf) {
+                // Stats strip
+                const stats = [
+                    [t('pdf.stats.total'), perf.totalVerdicts ?? 0, TEXT],
+                    [t('pdf.stats.evaluated'), perf.evaluated ?? 0, TEXT],
+                    [t('pdf.stats.wins'), perf.wins ?? 0, GREEN],
+                    [t('pdf.stats.losses'), perf.losses ?? 0, RED],
+                    [t('pdf.stats.winrate'), perf.winRate != null ? `${perf.winRate}%` : '—', AMBER],
+                    [
+                        t('pdf.stats.cum_r'),
+                        perf.cumulativeR != null ? `${formatSigned(perf.cumulativeR)}R` : '—',
+                        (perf.cumulativeR ?? 0) > 0 ? GREEN : (perf.cumulativeR ?? 0) < 0 ? RED : TEXT,
+                    ],
+                ];
+                const sw = (W - M * 2 - 5 * 2) / stats.length;
+                stats.forEach(([label, val, color], i) => {
+                    const sx = M + i * (sw + 2);
+                    panel(sx, y, sw, 18);
+                    setText(MUTED);
+                    pdf.setFont('helvetica', 'bold');
+                    pdf.setFontSize(6.5);
+                    pdf.text(String(label).toUpperCase(), sx + 3, y + 5);
+                    setText(color);
+                    pdf.setFont('helvetica', 'bold');
+                    pdf.setFontSize(13);
+                    pdf.text(String(val), sx + 3, y + 14);
+                });
+                y += 22;
+
+                // R-curve sparkline (vector, native PDF)
+                const evaluated = (perf.history || [])
+                    .slice()
+                    .reverse()
+                    .filter((r) => r.r !== null && r.r !== undefined);
+                if (evaluated.length > 1) {
+                    let cum = 0;
+                    const series = evaluated.map((r) => {
+                        cum += r.r;
+                        return cum;
+                    });
+                    const cw = W - M * 2;
+                    const ch = 32;
+                    panel(M, y, cw, ch);
+                    setText(MUTED);
+                    pdf.setFont('helvetica', 'bold');
+                    pdf.setFontSize(7);
+                    pdf.text(t('modal.perf.equity_label_r', series.length).toUpperCase(), M + 4, y + 5);
+                    setText(cum > 0 ? GREEN : cum < 0 ? RED : MUTED);
+                    pdf.setFont('helvetica', 'bold');
+                    pdf.setFontSize(10);
+                    pdf.text(`${formatSigned(cum)}R`, M + cw - 4, y + 5, { align: 'right' });
+
+                    const minV = Math.min(0, ...series);
+                    const maxV = Math.max(0, ...series);
+                    const range = Math.max(1, maxV - minV);
+                    const px = (i) => M + 4 + (i / (series.length - 1)) * (cw - 8);
+                    const py = (v) => y + ch - 4 - ((v - minV) / range) * (ch - 12);
+
+                    // baseline at zero
+                    setDraw(BORDER);
+                    pdf.setLineWidth(0.15);
+                    const yZero = py(0);
+                    pdf.line(M + 4, yZero, M + cw - 4, yZero);
+
+                    // curve
+                    setDraw(AMBER);
+                    pdf.setLineWidth(0.6);
+                    for (let i = 1; i < series.length; i++) {
+                        pdf.line(px(i - 1), py(series[i - 1]), px(i), py(series[i]));
+                    }
+                    y += ch + 6;
+                }
+
+                // Last 10 verdicts table
+                ensurePage(60);
+                setText(MUTED);
+                pdf.setFont('helvetica', 'bold');
+                pdf.setFontSize(7);
+                pdf.text(t('modal.perf.last_n', Math.min(10, perf.history?.length || 0)).toUpperCase(), M, y);
+                y += 2;
+                autoTable(pdf, {
+                    startY: y + 1,
+                    margin: { left: M, right: M },
+                    theme: 'plain',
+                    styles: {
+                        fontSize: 8,
+                        textColor: TEXT,
+                        cellPadding: { top: 2, bottom: 2, left: 3, right: 3 },
+                        fillColor: PANEL,
+                        lineColor: BORDER,
+                        lineWidth: 0.05,
+                    },
+                    headStyles: {
+                        fillColor: [6, 6, 9],
+                        textColor: AMBER,
+                        fontStyle: 'bold',
+                        fontSize: 7.5,
+                    },
+                    alternateRowStyles: { fillColor: [16, 16, 22] },
+                    head: [[
+                        t('modal.perf.col.report'),
+                        t('modal.perf.col.verdict'),
+                        t('modal.perf.col.entry_price'),
+                        t('modal.perf.col.week_min'),
+                        t('modal.perf.col.week_max'),
+                        t('modal.perf.col.r'),
+                        t('modal.perf.col.outcome'),
+                    ]],
+                    body: (perf.history || []).slice(0, 10).map((r) => [
+                        r.verdictDate || '—',
+                        r.verdict || '—',
+                        r.entryPrice != null ? Number(r.entryPrice).toFixed(4) : '—',
+                        r.weekMin != null ? Number(r.weekMin).toFixed(4) : '—',
+                        r.weekMax != null ? Number(r.weekMax).toFixed(4) : '—',
+                        r.r != null ? `${formatSigned(r.r)}R` : '—',
+                        r.outcome || '—',
+                    ]),
+                    didParseCell: (data) => {
+                        if (data.section !== 'body') return;
+                        // Verdict column: color
+                        if (data.column.index === 1) {
+                            const v = data.cell.text[0];
+                            if (v === 'LONG') data.cell.styles.textColor = GREEN;
+                            else if (v === 'SHORT') data.cell.styles.textColor = RED;
+                            else if (v === 'WAIT') data.cell.styles.textColor = AMBER;
+                            data.cell.styles.fontStyle = 'bold';
+                        }
+                        // R column: color
+                        if (data.column.index === 5) {
+                            const v = data.cell.text[0];
+                            if (v.startsWith('+')) data.cell.styles.textColor = GREEN;
+                            else if (v.startsWith('-')) data.cell.styles.textColor = RED;
+                            data.cell.styles.fontStyle = 'bold';
+                        }
+                        // Outcome column
+                        if (data.column.index === 6) {
+                            const v = data.cell.text[0];
+                            if (v === 'WIN') data.cell.styles.textColor = GREEN;
+                            else if (v === 'LOSS') data.cell.styles.textColor = RED;
+                            else if (v === 'PENDING') data.cell.styles.textColor = MUTED;
+                            else data.cell.styles.textColor = AMBER;
+                            data.cell.styles.fontStyle = 'bold';
+                        }
+                    },
+                });
+                y = pdf.lastAutoTable.finalY + 6;
+            }
+
+            // ---------- Footer (every page) ----------
+            const totalPages = pdf.internal.getNumberOfPages();
+            for (let i = 1; i <= totalPages; i++) {
+                pdf.setPage(i);
+                // Re-fill background for any new pages we added
+                if (i > 1) {
+                    setFill(BG);
+                    pdf.rect(0, 0, W, H, 'F');
+                    // mini header
+                    setFill([6, 6, 9]);
+                    pdf.rect(0, 0, W, 14, 'F');
+                    setText(AMBER);
+                    pdf.setFont('helvetica', 'bold');
+                    pdf.setFontSize(7);
+                    pdf.text('SPECULATIVE ALPHA', M, 6);
+                    setText(MUTED);
+                    pdf.setFont('helvetica', 'normal');
+                    pdf.text(`${asset.assetId} · ${snapshot.reportDate || ''}`, W - M, 6, { align: 'right' });
+                }
+                setText(MUTED);
+                pdf.setFont('helvetica', 'normal');
+                pdf.setFontSize(7);
+                pdf.text(t('pdf.footer'), M, H - 5);
+                pdf.text(`${i} / ${totalPages}`, W - M, H - 5, { align: 'right' });
+            }
+
             const fname = `${asset.assetId}_${snapshot.reportDate || 'snapshot'}.pdf`;
             pdf.save(fname);
         } catch (e) {
@@ -278,7 +657,6 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                     onClick={(e) => e.stopPropagation()}
                     className="relative bg-[#0a0a0d] border border-white/10 sm:rounded-[28px] w-full max-w-6xl h-full sm:h-auto sm:max-h-[calc(100vh-3rem)] flex flex-col overflow-hidden shadow-[0_40px_120px_rgba(0,0,0,0.8)]"
                     data-testid="detail-modal"
-                    ref={captureRef}
                 >
                     {/* Header (sticky) */}
                     <div className="shrink-0 flex flex-wrap items-center justify-between gap-4 p-6 sm:p-8 border-b border-white/5">
@@ -930,7 +1308,7 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                                                                 formatter={(v) => `${v}R`}
                                                                             />
                                                                             <Area
-                                                                                type="stepAfter"
+                                                                                type="monotone"
                                                                                 dataKey="equity"
                                                                                 stroke="#f59e0b"
                                                                                 strokeWidth={2}

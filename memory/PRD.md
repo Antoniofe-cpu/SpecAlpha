@@ -41,6 +41,18 @@
 - Backend tests: 12/12 PASS
 - Frontend: 95% (only cold-cache transient banner; resolved on subsequent loads)
 
+## Latest Session (Feb 2026) — Round 4 (rifinitura)
+- **AI multilingua end-to-end**:
+  - Backend: tutti gli endpoint AI (`/cot/{asset}`, `/cot/bulk`, `/macro/{asset}`, `/verdict/{asset}`) accettano `?lang=it|en`. Prompt e fallback dinamici. Cache `_id` separata per lingua (`{asset}__{lang}`).
+  - Frontend: `api.js` propaga `lang`. App e Modal ri-fetchano automaticamente quando il toggle cambia, popolando le tre considerazioni (Macro Intelligence, Macro Sentiment, Final Verdict) nella nuova lingua.
+- **Toggle lingua bottom-LEFT** (era coperto dal badge Emergent in basso a destra). Auto-detect mantenuto.
+- **Performance equity curve = curva monotone** (no più step-after).
+- **PDF "fotocopia documento"**:
+  - Sostituito html2canvas con costruzione **nativa jsPDF + autoTable**.
+  - Replica fedele del design: header con brand stripe, 3 panel top (Sentiment / Net Position / Macro Intelligence con quote in italic), Macro Sentiment full-width, Final Verdict colorato, COT History table colorata (Δ verde/rosso), Performance R con stats strip + R-curve vector + ultimi 10 verdetti.
+  - Multi-pagina A4 portrait con header riassuntivo + footer paginato su tutte le pagine.
+  - **44 KB** invece di 42 MB; testo selezionabile; lingua del PDF segue il toggle app.
+
 ## Latest Session (Feb 2026) — Round 3 (semplificazione)
 - **Performance R semplice**:
   - Una WIN vale **+1R**, una LOSS vale **−1R**, FLAT = 0R (rare).

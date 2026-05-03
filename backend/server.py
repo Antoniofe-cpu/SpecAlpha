@@ -61,40 +61,51 @@ EMERGENT_LLM_KEY = os.environ.get("EMERGENT_LLM_KEY")
 # AI Insight (Gemini via emergentintegrations)
 # ---------------------------------------------------------------------------
 
-async def generate_macro_insight(asset_id: str, snapshot: Dict[str, Any]) -> str:
+async def generate_macro_insight(asset_id: str, snapshot: Dict[str, Any], lang: str = "it") -> str:
     """Generate a short institutional-style macro insight using Gemini."""
     delta = snapshot.get("wowDelta", 0)
     net = snapshot.get("netPosition", 0)
     sentiment = "Bullish Flow" if delta > 0 else "Bearish Flow"
-    if abs(delta) > 10000:
-        action = "Forte Accumulo" if delta > 0 else "Forte Distribuzione"
+    if lang == "en":
+        if abs(delta) > 10000:
+            action = "Strong Accumulation" if delta > 0 else "Strong Distribution"
+        else:
+            action = "Accumulation" if delta > 0 else "Distribution"
+        fallback = (
+            f"Mood: {sentiment}. {action} Non-Commercial. "
+            f"Net {net:+,} (Δ {delta:+,}). Watch price/positioning divergence."
+        )
+        system = (
+            "You are a Senior Macro Strategist on an Institutional Bloomberg Desk. "
+            "You analyse Non-Commercial COT (Commitment of Traders) flows and produce technical "
+            "macro insights. Sharp, professional English. No intro, only synthetic analysis."
+        )
+        prompt_tpl = (
+            f"Asset: {asset_id} ({ASSET_MAP[asset_id]['name']}).\n"
+            f"Net Position: {net:+,}\n"
+            f"WoW change: {delta:+,}\n"
+            f"Long: {snapshot.get('long', 0):,} | Short: {snapshot.get('short', 0):,}\n"
+            f"Open Interest Share: {snapshot.get('openInterestShare', 0)}%\n"
+            f"Flow sentiment: {action} Non-Commercial.\n\n"
+            "OUTPUT: 1-2 sentences (max 180 chars) in Bloomberg analyst-note style. "
+            "Synthesise positioning, weekly momentum and trade implications. English only."
+        )
     else:
-        action = "Accumulo" if delta > 0 else "Distribuzione"
-
-    fallback = (
-        f"Mood: {sentiment}. {action} Non-Commercial. "
-        f"Net {net:+,} (Δ {delta:+,}). Watch divergenza prezzo/posizioni."
-    )
-
-    if not EMERGENT_LLM_KEY:
-        return fallback
-
-    try:
-        # Lazy import so backend still works if package unavailable
-        from emergentintegrations.llm.chat import LlmChat, UserMessage  # type: ignore
-
-        chat = LlmChat(
-            api_key=EMERGENT_LLM_KEY,
-            session_id=f"cot-{asset_id}",
-            system_message=(
-                "Sei un Senior Macro Strategist di un Institutional Desk Bloomberg. "
-                "Analizzi flussi COT (Commitment of Traders) Non-Commercial e generi "
-                "insight macro tecnici. Tono tagliente, professionale, italiano. "
-                "Niente intro, solo analisi sintetica."
-            ),
-        ).with_model("gemini", "gemini-2.5-flash")
-
-        prompt = (
+        if abs(delta) > 10000:
+            action = "Forte Accumulo" if delta > 0 else "Forte Distribuzione"
+        else:
+            action = "Accumulo" if delta > 0 else "Distribuzione"
+        fallback = (
+            f"Mood: {sentiment}. {action} Non-Commercial. "
+            f"Net {net:+,} (Δ {delta:+,}). Watch divergenza prezzo/posizioni."
+        )
+        system = (
+            "Sei un Senior Macro Strategist di un Institutional Desk Bloomberg. "
+            "Analizzi flussi COT (Commitment of Traders) Non-Commercial e generi "
+            "insight macro tecnici. Tono tagliente, professionale, italiano. "
+            "Niente intro, solo analisi sintetica."
+        )
+        prompt_tpl = (
             f"Asset: {asset_id} ({ASSET_MAP[asset_id]['name']}).\n"
             f"Posizione Netta: {net:+,}\n"
             f"Variazione WoW: {delta:+,}\n"
@@ -102,10 +113,22 @@ async def generate_macro_insight(asset_id: str, snapshot: Dict[str, Any]) -> str
             f"Open Interest Share: {snapshot.get('openInterestShare', 0)}%\n"
             f"Sentiment flussi: {action} Non-Commercial.\n\n"
             "OUTPUT: 1-2 frasi (max 180 caratteri) in stile Bloomberg analyst note. "
-            "Sintetizza posizionamento, momentum settimanale e implicazioni operative."
+            "Sintetizza posizionamento, momentum settimanale e implicazioni operative. Solo italiano."
         )
 
-        msg = UserMessage(text=prompt)
+    if not EMERGENT_LLM_KEY:
+        return fallback
+
+    try:
+        from emergentintegrations.llm.chat import LlmChat, UserMessage  # type: ignore
+
+        chat = LlmChat(
+            api_key=EMERGENT_LLM_KEY,
+            session_id=f"cot-{asset_id}-{lang}",
+            system_message=system,
+        ).with_model("gemini", "gemini-2.5-flash")
+
+        msg = UserMessage(text=prompt_tpl)
         response = await chat.send_message(msg)
         text = (response or "").strip().strip('"').strip("'")
         return text[:240] if len(text) > 10 else fallback
@@ -134,8 +157,9 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-async def get_cached(asset_id: str) -> Optional[Dict[str, Any]]:
-    doc = await db[CACHE_COLL].find_one({"_id": asset_id}, {"_id": 0})
+async def get_cached(asset_id: str, lang: str = "it") -> Optional[Dict[str, Any]]:
+    key = f"{asset_id}__{lang}"
+    doc = await db[CACHE_COLL].find_one({"_id": key}, {"_id": 0})
     if not doc:
         return None
     fetched_at = datetime.fromisoformat(doc["fetchedAt"])
@@ -144,9 +168,10 @@ async def get_cached(asset_id: str) -> Optional[Dict[str, Any]]:
     return doc["data"]
 
 
-async def set_cached(asset_id: str, data: Dict[str, Any]) -> None:
+async def set_cached(asset_id: str, data: Dict[str, Any], lang: str = "it") -> None:
+    key = f"{asset_id}__{lang}"
     await db[CACHE_COLL].update_one(
-        {"_id": asset_id},
+        {"_id": key},
         {"$set": {"data": data, "fetchedAt": _now().isoformat()}},
         upsert=True,
     )
@@ -224,12 +249,12 @@ async def list_assets() -> List[AssetMeta]:
     ]
 
 
-async def _fetch_snapshot(asset_id: str, force: bool = False) -> Dict[str, Any]:
+async def _fetch_snapshot(asset_id: str, force: bool = False, lang: str = "it") -> Dict[str, Any]:
     if asset_id not in ASSET_MAP:
         raise HTTPException(status_code=404, detail=f"Unknown asset {asset_id}")
 
     if not force:
-        cached = await get_cached(asset_id)
+        cached = await get_cached(asset_id, lang=lang)
         if cached:
             return cached
 
@@ -241,9 +266,9 @@ async def _fetch_snapshot(asset_id: str, force: bool = False) -> Dict[str, Any]:
         "type": meta["type"],
         **raw,
     }
-    snapshot["macro"] = await generate_macro_insight(asset_id, snapshot)
+    snapshot["macro"] = await generate_macro_insight(asset_id, snapshot, lang=lang)
     snapshot["fetchedAt"] = _now().isoformat()
-    await set_cached(asset_id, snapshot)
+    await set_cached(asset_id, snapshot, lang=lang)
     return snapshot
 
 
@@ -251,18 +276,19 @@ async def _fetch_snapshot(asset_id: str, force: bool = False) -> Dict[str, Any]:
 async def cot_bulk(
     scope: str = Query("core", description="core | all"),
     refresh: bool = Query(False),
+    lang: str = Query("it"),
 ) -> List[CotSnapshot]:
+    lang = "en" if lang == "en" else "it"
     asset_ids = [
         k for k, v in ASSET_MAP.items()
         if scope == "all" or v.get("core")
     ]
-    # Limit concurrency to be polite
     sem = asyncio.Semaphore(4)
 
     async def runner(aid: str) -> Optional[Dict[str, Any]]:
         async with sem:
             try:
-                return await _fetch_snapshot(aid, force=refresh)
+                return await _fetch_snapshot(aid, force=refresh, lang=lang)
             except Exception as e:  # noqa: BLE001
                 logger.exception("snapshot failed %s: %s", aid, e)
                 return None
@@ -272,8 +298,9 @@ async def cot_bulk(
 
 
 @api.get("/cot/{asset_id}", response_model=CotSnapshot)
-async def cot_one(asset_id: str, refresh: bool = Query(False)) -> CotSnapshot:
-    data = await _fetch_snapshot(asset_id.upper(), force=refresh)
+async def cot_one(asset_id: str, refresh: bool = Query(False), lang: str = Query("it")) -> CotSnapshot:
+    lang = "en" if lang == "en" else "it"
+    data = await _fetch_snapshot(asset_id.upper(), force=refresh, lang=lang)
     return CotSnapshot(**data)
 
 
@@ -355,13 +382,15 @@ async def _llm_generate(system: str, user: str, session: str, fallback: str) -> 
 
 
 @api.get("/macro/{asset_id}")
-async def macro_sentiment(asset_id: str, refresh: bool = Query(False)) -> Dict[str, Any]:
+async def macro_sentiment(asset_id: str, refresh: bool = Query(False), lang: str = Query("it")) -> Dict[str, Any]:
     asset_id = asset_id.upper()
+    lang = "en" if lang == "en" else "it"
     if asset_id not in ASSET_MAP:
         raise HTTPException(status_code=404, detail="Unknown asset")
 
+    cache_key = f"{asset_id}__{lang}"
     if not refresh:
-        doc = await db[MACRO_COLL].find_one({"_id": asset_id}, {"_id": 0})
+        doc = await db[MACRO_COLL].find_one({"_id": cache_key}, {"_id": 0})
         if doc:
             fetched_at = datetime.fromisoformat(doc["fetchedAt"])
             if _now() - fetched_at < timedelta(hours=MACRO_TTL_HOURS):
@@ -372,17 +401,26 @@ async def macro_sentiment(asset_id: str, refresh: bool = Query(False)) -> Dict[s
     events_text = compact_events_text(relevant, limit=10)
 
     meta = ASSET_MAP[asset_id]
-    prompt = (
-        f"Asset: {asset_id} ({meta['name']}). Tipo: {meta['type']}.\n\n"
-        f"Eventi macro da tradingeconomics.com (ultimi 7 giorni + prossimi):\n{events_text}\n\n"
-        "TASK: Sintesi in italiano (2-3 frasi, max 260 caratteri) dello stato macroeconomico "
-        "rilevante per questo asset. Cita eventi chiave. Indica se il contesto è bullish, bearish o misto."
-    )
-    fallback = f"Nessuna news rilevante nel range settimanale. {len(relevant)} eventi macro tracciati da tradingeconomics."
-    summary = await _llm_generate(
-        "Sei un senior macro analyst. Stile Bloomberg tagliente. Niente intro, solo analisi.",
-        prompt, f"macro-{asset_id}", fallback,
-    )
+    if lang == "en":
+        prompt = (
+            f"Asset: {asset_id} ({meta['name']}). Type: {meta['type']}.\n\n"
+            f"Macro events from tradingeconomics.com (last 7 days + upcoming):\n{events_text}\n\n"
+            "TASK: Synthesise in English (2-3 sentences, max 260 chars) the macro state relevant "
+            "for this asset. Cite key events. Indicate whether context is bullish, bearish, or mixed."
+        )
+        system = "You are a senior macro analyst. Sharp Bloomberg style. No intro, only analysis. English only."
+        fallback = f"No relevant news in the weekly window. {len(relevant)} macro events tracked from tradingeconomics."
+    else:
+        prompt = (
+            f"Asset: {asset_id} ({meta['name']}). Tipo: {meta['type']}.\n\n"
+            f"Eventi macro da tradingeconomics.com (ultimi 7 giorni + prossimi):\n{events_text}\n\n"
+            "TASK: Sintesi in italiano (2-3 frasi, max 260 caratteri) dello stato macroeconomico "
+            "rilevante per questo asset. Cita eventi chiave. Indica se il contesto è bullish, bearish o misto."
+        )
+        system = "Sei un senior macro analyst. Stile Bloomberg tagliente. Niente intro, solo analisi. Solo italiano."
+        fallback = f"Nessuna news rilevante nel range settimanale. {len(relevant)} eventi macro tracciati da tradingeconomics."
+
+    summary = await _llm_generate(system, prompt, f"macro-{asset_id}-{lang}", fallback)
     data = {
         "assetId": asset_id,
         "summary": summary[:280],
@@ -391,53 +429,69 @@ async def macro_sentiment(asset_id: str, refresh: bool = Query(False)) -> Dict[s
         "fetchedAt": _now().isoformat(),
     }
     await db[MACRO_COLL].update_one(
-        {"_id": asset_id}, {"$set": {"data": data, "fetchedAt": _now().isoformat()}}, upsert=True,
+        {"_id": cache_key}, {"$set": {"data": data, "fetchedAt": _now().isoformat()}}, upsert=True,
     )
     return data
 
 
 @api.get("/verdict/{asset_id}")
-async def final_verdict(asset_id: str, refresh: bool = Query(False)) -> Dict[str, Any]:
+async def final_verdict(asset_id: str, refresh: bool = Query(False), lang: str = Query("it")) -> Dict[str, Any]:
     asset_id = asset_id.upper()
+    lang = "en" if lang == "en" else "it"
     if asset_id not in ASSET_MAP:
         raise HTTPException(status_code=404, detail="Unknown asset")
 
+    cache_key = f"{asset_id}__{lang}"
     if not refresh:
-        doc = await db[VERDICT_COLL].find_one({"_id": asset_id}, {"_id": 0})
+        doc = await db[VERDICT_COLL].find_one({"_id": cache_key}, {"_id": 0})
         if doc:
             fetched_at = datetime.fromisoformat(doc["fetchedAt"])
             if _now() - fetched_at < timedelta(hours=VERDICT_TTL_HOURS):
                 return doc["data"]
 
-    cot_snap = await _fetch_snapshot(asset_id)
-    macro = await macro_sentiment(asset_id)
+    cot_snap = await _fetch_snapshot(asset_id, lang=lang)
+    macro = await macro_sentiment(asset_id, lang=lang)
     history = await cot_history(asset_id, limit=4)
-    # price change last week (from oldest to newest in last 4 reports -> approx 1 week)
     price_change_pct = None
     latest_price = history[0].get("price") if history else None
     prev_price = history[1].get("price") if len(history) > 1 else None
     if latest_price and prev_price and prev_price != 0:
         price_change_pct = round(((latest_price - prev_price) / prev_price) * 100, 2)
 
-    context = (
-        f"Asset: {asset_id} ({ASSET_MAP[asset_id]['name']}).\n"
-        f"COT Non-Commercial: Net {cot_snap['netPosition']:+,}, Δ WoW {cot_snap['wowDelta']:+,}, "
-        f"Long {cot_snap['long']:,}, Short {cot_snap['short']:,}.\n"
-        f"COT Macro insight: {cot_snap.get('macro', '')}\n"
-        f"Macro sentiment settimanale: {macro['summary']}\n"
-        f"Prezzo ultimo: {latest_price or '—'} · Variazione WoW: "
-        f"{(str(price_change_pct) + '%') if price_change_pct is not None else 'N/A'}.\n\n"
-        "TASK: Restituisci SOLO JSON con questa struttura: "
-        '{"verdict":"LONG|SHORT|WAIT","confidence":1-5,"summary":"..."}. '
-        "Verdetto operazionale sintetico considerando (1) posizionamento istituzionale COT, "
-        "(2) contesto macro ultima settimana, (3) andamento prezzo. Summary max 200 caratteri in italiano."
-    )
-    fallback_json = '{"verdict":"WAIT","confidence":2,"summary":"Dati insufficienti per un verdetto solido."}'
-    raw = await _llm_generate(
-        "Sei un senior portfolio manager. Risponde solo in JSON valido, nessun commento extra.",
-        context, f"verdict-{asset_id}", fallback_json,
-    )
-    # Best-effort JSON extraction
+    if lang == "en":
+        context = (
+            f"Asset: {asset_id} ({ASSET_MAP[asset_id]['name']}).\n"
+            f"COT Non-Commercial: Net {cot_snap['netPosition']:+,}, Δ WoW {cot_snap['wowDelta']:+,}, "
+            f"Long {cot_snap['long']:,}, Short {cot_snap['short']:,}.\n"
+            f"COT macro insight: {cot_snap.get('macro', '')}\n"
+            f"Weekly macro sentiment: {macro['summary']}\n"
+            f"Last price: {latest_price or '—'} · WoW change: "
+            f"{(str(price_change_pct) + '%') if price_change_pct is not None else 'N/A'}.\n\n"
+            "TASK: Return ONLY JSON with this structure: "
+            '{"verdict":"LONG|SHORT|WAIT","confidence":1-5,"summary":"..."}. '
+            "Synthetic operational verdict considering (1) institutional COT positioning, "
+            "(2) last-week macro context, (3) price action. Summary max 200 chars in English."
+        )
+        system = "You are a senior portfolio manager. Reply only with valid JSON, no extra commentary. English only."
+        fallback_json = '{"verdict":"WAIT","confidence":2,"summary":"Insufficient data for a solid verdict."}'
+    else:
+        context = (
+            f"Asset: {asset_id} ({ASSET_MAP[asset_id]['name']}).\n"
+            f"COT Non-Commercial: Net {cot_snap['netPosition']:+,}, Δ WoW {cot_snap['wowDelta']:+,}, "
+            f"Long {cot_snap['long']:,}, Short {cot_snap['short']:,}.\n"
+            f"COT Macro insight: {cot_snap.get('macro', '')}\n"
+            f"Macro sentiment settimanale: {macro['summary']}\n"
+            f"Prezzo ultimo: {latest_price or '—'} · Variazione WoW: "
+            f"{(str(price_change_pct) + '%') if price_change_pct is not None else 'N/A'}.\n\n"
+            "TASK: Restituisci SOLO JSON con questa struttura: "
+            '{"verdict":"LONG|SHORT|WAIT","confidence":1-5,"summary":"..."}. '
+            "Verdetto operazionale sintetico considerando (1) posizionamento istituzionale COT, "
+            "(2) contesto macro ultima settimana, (3) andamento prezzo. Summary max 200 caratteri in italiano."
+        )
+        system = "Sei un senior portfolio manager. Risponde solo in JSON valido, nessun commento extra. Solo italiano."
+        fallback_json = '{"verdict":"WAIT","confidence":2,"summary":"Dati insufficienti per un verdetto solido."}'
+
+    raw = await _llm_generate(system, context, f"verdict-{asset_id}-{lang}", fallback_json)
     import json as _json
     parsed = None
     try:
@@ -466,7 +520,7 @@ async def final_verdict(asset_id: str, refresh: bool = Query(False)) -> Dict[str
         "generatedAt": _now().isoformat(),
     }
     await db[VERDICT_COLL].update_one(
-        {"_id": asset_id}, {"$set": {"data": data, "fetchedAt": _now().isoformat()}}, upsert=True,
+        {"_id": cache_key}, {"$set": {"data": data, "fetchedAt": _now().isoformat()}}, upsert=True,
     )
     # Append to immutable verdict history for later P/L tracking
     await db[VERDICT_HISTORY_COLL].insert_one({**data, "savedAt": _now().isoformat()})

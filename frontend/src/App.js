@@ -58,7 +58,7 @@ function LangToggle() {
     return (
         <div
             data-testid="lang-toggle"
-            className="fixed bottom-4 right-4 z-[105] flex items-center bg-[#0a0a0d]/95 border border-white/10 rounded-2xl p-1 shadow-[0_8px_28px_rgba(0,0,0,0.6)] backdrop-blur-xl"
+            className="fixed bottom-4 left-4 z-[105] flex items-center bg-[#0a0a0d]/95 border border-white/10 rounded-2xl p-1 shadow-[0_8px_28px_rgba(0,0,0,0.6)] backdrop-blur-xl"
         >
             <button
                 data-testid="lang-it"
@@ -89,7 +89,7 @@ function LangToggle() {
 }
 
 export default function App() {
-    const { t } = useT();
+    const { t, lang } = useT();
     const [meta, setMeta] = useState([]);
     const [snapshots, setSnapshots] = useState([]);
     const [allCurrencies, setAllCurrencies] = useState([]);
@@ -111,11 +111,10 @@ export default function App() {
             if (force) setRefreshing(true);
             const [assetsList, bulk] = await Promise.all([
                 meta.length ? Promise.resolve(meta) : fetchAssets(),
-                fetchBulk(scopeArg, force),
+                fetchBulk(scopeArg, force, lang),
             ]);
             setMeta(assetsList);
             setSnapshots(bulk);
-            // Hydrate all-currencies set: union of bulk + scope=all if needed
             if (scopeArg === 'all') {
                 setAllCurrencies(bulk.filter((s) => CURRENCY_IDS.includes(s.assetId)));
             }
@@ -131,7 +130,7 @@ export default function App() {
     // Always fetch all currencies in background for the Strength Index
     const loadAllCurrencies = async (force = false) => {
         try {
-            const data = await fetchBulk('all', force);
+            const data = await fetchBulk('all', force, lang);
             const ccy = data.filter((s) => CURRENCY_IDS.includes(s.assetId));
             setAllCurrencies(ccy);
         } catch (e) {
@@ -149,6 +148,19 @@ export default function App() {
         loadData(scope);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [scope]);
+
+    // Re-fetch all data when language changes so AI insights come back in the new language.
+    // Use a ref to skip the very first render (initial mount already triggers loadData above).
+    const langInitRef = React.useRef(true);
+    useEffect(() => {
+        if (langInitRef.current) {
+            langInitRef.current = false;
+            return;
+        }
+        loadData(scope);
+        loadAllCurrencies();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [lang]);
 
     const toggleFav = (id) => {
         setFavorites((prev) => {
