@@ -11,6 +11,7 @@ import {
     BarChart,
     Bar,
     Cell,
+    Brush,
 } from 'recharts';
 import {
     X,
@@ -21,6 +22,9 @@ import {
     TrendingUp,
     Activity,
     BarChart3,
+    ZoomIn,
+    ZoomOut,
+    Maximize,
 } from 'lucide-react';
 import { fetchHistory, fetchOne } from '../api';
 import { cn, formatNumber, formatSigned, getTrendAnalysis, TONE_CLASSES, downloadCSV } from '../utils';
@@ -44,14 +48,20 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
         short: false,
         price: true,
     });
+    // Zoom range inside the selected windowSize slice: [startIndex, endIndex] over chartData
+    const [zoomRange, setZoomRange] = useState(null); // null = full window
 
     const toggleSeries = (k) =>
         setVisible((v) => {
             const next = { ...v, [k]: !v[k] };
-            // prevent turning all off
             if (!Object.values(next).some(Boolean)) return v;
             return next;
         });
+
+    // Reset zoom when windowSize or asset changes
+    useEffect(() => {
+        setZoomRange(null);
+    }, [windowSize, asset?.assetId]);
 
     useEffect(() => {
         if (!asset?.assetId) return;
@@ -95,6 +105,25 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
     const longTotal = (snapshot?.long || 0) + (snapshot?.short || 0) || 1;
     const longPct = Math.round(((snapshot?.long || 0) / longTotal) * 100);
 
+    // Zoom helpers
+    const zStart = zoomRange ? Math.max(0, zoomRange[0]) : 0;
+    const zEnd = zoomRange ? Math.min(chartData.length - 1, zoomRange[1]) : Math.max(0, chartData.length - 1);
+    const zoomIn = () => {
+        const mid = Math.floor((zStart + zEnd) / 2);
+        const half = Math.max(2, Math.floor((zEnd - zStart) / 4));
+        setZoomRange([Math.max(0, mid - half), Math.min(chartData.length - 1, mid + half)]);
+    };
+    const zoomOut = () => {
+        if (!zoomRange) return;
+        const mid = Math.floor((zStart + zEnd) / 2);
+        const half = Math.max(4, Math.floor((zEnd - zStart) * 0.9));
+        const newStart = Math.max(0, mid - half);
+        const newEnd = Math.min(chartData.length - 1, mid + half);
+        if (newStart === 0 && newEnd === chartData.length - 1) setZoomRange(null);
+        else setZoomRange([newStart, newEnd]);
+    };
+    const resetZoom = () => setZoomRange(null);
+
     const handleExport = () => {
         const rows = (history || []).map((h) => ({
             date: h.date,
@@ -104,6 +133,7 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
             wowDelta: h.wowDelta,
             changeLong: h.changeLong,
             changeShort: h.changeShort,
+            price: h.price ?? '',
         }));
         downloadCSV(`${asset.assetId}_cot_history.csv`, rows);
     };
@@ -114,21 +144,21 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="fixed inset-0 z-[120] flex items-start sm:items-center justify-center p-4 sm:p-8 bg-black/85 backdrop-blur-md overflow-y-auto"
+                className="fixed inset-0 z-[120] flex items-stretch sm:items-center justify-center p-0 sm:p-6 bg-black/85 backdrop-blur-md"
                 onClick={onClose}
                 data-testid="detail-modal-overlay"
             >
                 <motion.div
-                    initial={{ opacity: 0, scale: 0.96, y: 20 }}
+                    initial={{ opacity: 0, scale: 0.97, y: 14 }}
                     animate={{ opacity: 1, scale: 1, y: 0 }}
-                    exit={{ opacity: 0, scale: 0.96 }}
-                    transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+                    exit={{ opacity: 0, scale: 0.97 }}
+                    transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
                     onClick={(e) => e.stopPropagation()}
-                    className="relative bg-[#0a0a0d] border border-white/10 rounded-[32px] w-full max-w-6xl my-8 shadow-[0_40px_120px_rgba(0,0,0,0.8)]"
+                    className="relative bg-[#0a0a0d] border border-white/10 sm:rounded-[28px] w-full max-w-6xl h-full sm:h-auto sm:max-h-[calc(100vh-3rem)] flex flex-col overflow-hidden shadow-[0_40px_120px_rgba(0,0,0,0.8)]"
                     data-testid="detail-modal"
                 >
-                    {/* Header */}
-                    <div className="flex flex-wrap items-center justify-between gap-4 p-7 sm:p-9 border-b border-white/5">
+                    {/* Header (sticky) */}
+                    <div className="shrink-0 flex flex-wrap items-center justify-between gap-4 p-6 sm:p-8 border-b border-white/5">
                         <div className="flex items-center gap-4">
                             <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center">
                                 <TrendingUp className="text-amber-400" size={24} />
@@ -175,8 +205,8 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                         </div>
                     </div>
 
-                    {/* Body */}
-                    <div className="p-7 sm:p-9 space-y-8">
+                    {/* Body (scrollable) */}
+                    <div className="flex-1 overflow-y-auto p-6 sm:p-8 space-y-6 sm:space-y-8">
                         {/* Top metrics */}
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                             <div className="bg-[#0e0e14] border border-white/[0.07] rounded-3xl p-5">
@@ -258,7 +288,7 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                 </div>
                             </div>
 
-                            {/* Series toggles */}
+                            {/* Series toggles + Zoom controls */}
                             <div className="flex flex-wrap items-center gap-2 mb-4">
                                 {SERIES.map((s) => (
                                     <button
@@ -284,9 +314,40 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                         {s.label}
                                     </button>
                                 ))}
+
+                                {/* Zoom controls pushed right */}
+                                <div className="flex items-center gap-1 ml-auto bg-black/30 border border-white/10 rounded-full p-1">
+                                    <button
+                                        data-testid="zoom-in-btn"
+                                        onClick={zoomIn}
+                                        disabled={zEnd - zStart < 4}
+                                        className="p-1.5 rounded-full text-gray-300 hover:bg-amber-500/15 hover:text-amber-300 disabled:opacity-30 transition-colors"
+                                        aria-label="Zoom in"
+                                    >
+                                        <ZoomIn size={14} />
+                                    </button>
+                                    <button
+                                        data-testid="zoom-out-btn"
+                                        onClick={zoomOut}
+                                        disabled={!zoomRange}
+                                        className="p-1.5 rounded-full text-gray-300 hover:bg-amber-500/15 hover:text-amber-300 disabled:opacity-30 transition-colors"
+                                        aria-label="Zoom out"
+                                    >
+                                        <ZoomOut size={14} />
+                                    </button>
+                                    <button
+                                        data-testid="zoom-reset-btn"
+                                        onClick={resetZoom}
+                                        disabled={!zoomRange}
+                                        className="p-1.5 rounded-full text-gray-300 hover:bg-amber-500/15 hover:text-amber-300 disabled:opacity-30 transition-colors"
+                                        aria-label="Reset zoom"
+                                    >
+                                        <Maximize size={14} />
+                                    </button>
+                                </div>
                             </div>
 
-                            <div className="h-[360px]">
+                            <div className="h-[400px]">
                                 {loading ? (
                                     <div className="h-full flex items-center justify-center text-gray-500 text-[13px]">
                                         <RefreshCw size={18} className="animate-spin mr-2 text-amber-400/60" /> Caricamento serie storica…
@@ -343,7 +404,10 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                                 }}
                                                 labelStyle={{ color: '#f59e0b' }}
                                                 itemStyle={{ color: '#fff' }}
-                                                formatter={(v, k) => (k === 'price' ? String(v) : formatNumber(v))}
+                                                formatter={(v, name) => {
+                                                    if (name === 'Prezzo') return Number(v).toLocaleString('en-US', { maximumFractionDigits: 2 });
+                                                    return formatNumber(v);
+                                                }}
                                             />
                                             {SERIES.map((s) =>
                                                 visible[s.key] ? (
@@ -361,6 +425,22 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                                     />
                                                 ) : null
                                             )}
+                                            <Brush
+                                                dataKey="date"
+                                                height={28}
+                                                travellerWidth={10}
+                                                stroke="#f59e0b"
+                                                fill="rgba(245,158,11,0.06)"
+                                                startIndex={zStart}
+                                                endIndex={zEnd}
+                                                tickFormatter={(v) => v?.slice(5)}
+                                                onChange={(r) => {
+                                                    if (r && typeof r.startIndex === 'number' && typeof r.endIndex === 'number') {
+                                                        if (r.startIndex === 0 && r.endIndex === chartData.length - 1) setZoomRange(null);
+                                                        else setZoomRange([r.startIndex, r.endIndex]);
+                                                    }
+                                                }}
+                                            />
                                         </AreaChart>
                                     </ResponsiveContainer>
                                 ) : (
