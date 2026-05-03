@@ -41,6 +41,13 @@
 - Backend tests: 12/12 PASS
 - Frontend: 95% (only cold-cache transient banner; resolved on subsequent loads)
 
+## Latest Session (Feb 2026) — Round 9 (backtest cronologico onesto)
+- **Logica realistica sostituisce il "best-case"**: ora il backtest guarda l'**ordine cronologico** dei min/max settimanali.
+  - LONG: se il minimo arriva PRIMA del massimo → struttura rialzista → WIN (entry=min, exit=max). Se il massimo arriva prima del minimo → trader entra al max, vede scendere al min → LOSS.
+  - SHORT: simmetrico.
+- Statistiche ora oneste: NAS100 win rate 63.6% (era 100%), EURUSD 48% — riflettono realmente se la settimana A2 rispetta la direzione del segnale.
+- Disclaimer IT/EN aggiornato.
+
 ## Latest Session (Feb 2026) — Round 8 (backtest intra-settimanale A2→A2)
 - **Ridisegno logica per utente**: il trade è **intra-settimana**. Report A1 → operazione confinata nella settimana A2.
   - Per LONG: trova la coppia (i,j) con i<j che massimizza `price[j] - price[i]` nei giorni di A2.

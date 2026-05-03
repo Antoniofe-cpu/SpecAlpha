@@ -200,7 +200,7 @@ const STR = {
         'modal.perf.equity_label_pct': (n) => `Equity Curve · ultimi ${n} verdetti valutati (P/L %)`,
         'modal.perf.last_n': (n) => `Ultimi ${n} verdetti`,
         'modal.perf_logic_r':
-            'Logica: il trade opera INTRA-settimana, nella settimana successiva al report. Il backtest cerca la miglior coppia (entry → exit) rispettando l\'ordine cronologico: per LONG, il minimo che precede il massimo; per SHORT, il massimo che precede il minimo. P/L % = (Exit − Entry)/Entry con segno della direzione. WIN se P/L > 0.',
+            'Logica: trade intra-settimana (settimana A2 dopo il report). Il backtest guarda l\'ordine cronologico del minimo e del massimo settimanali. LONG: se il minimo è PRIMA del massimo → struttura rialzista → WIN (entry=min, exit=max); se il massimo è PRIMA del minimo → LOSS (entry=max, exit=min). SHORT: simmetrico. È il modo più onesto di misurare se la settimana ha rispettato la direzione del segnale.',
         'modal.perf_synth_note_r':
             'Nota: i verdetti sono ricostruiti da una regola sintetica deterministica (LONG solo se Net e Δ WoW concordi long, SHORT solo se concordi short, altrimenti WAIT esclusi). Il backtest misura il potenziale massimo del segnale con tempismo intra-settimanale ideale; la logica live (AI + macro + price action) tende comunque a essere più affidabile dei backfill meccanici.',
 
@@ -398,7 +398,7 @@ const STR = {
         'modal.perf.equity_label_pct': (n) => `Equity Curve · last ${n} evaluated verdicts (P/L %)`,
         'modal.perf.last_n': (n) => `Last ${n} verdicts`,
         'modal.perf_logic_r':
-            'Logic: trade operates INTRA-week, during the week after the report. The backtest finds the best (entry → exit) pair respecting chronological order: for LONG, the min before the max; for SHORT, the max before the min. P/L % = (Exit − Entry)/Entry signed by direction. WIN if P/L > 0.',
+            'Logic: intra-week trade (week A2 following the report). The backtest looks at the chronological order of the weekly min and max. LONG: if the min comes BEFORE the max → bullish structure → WIN (entry=min, exit=max); if the max comes BEFORE the min → LOSS (entry=max, exit=min). SHORT: mirrored. This is the most honest way to measure whether the week respected the signal direction.',
         'modal.perf_synth_note_r':
             'Note: backfilled verdicts come from a deterministic synthetic rule (LONG only when Net and Δ WoW are both long, SHORT only when both short, otherwise WAIT excluded). The backtest measures the signal\'s maximum potential with ideal intra-week timing; the live logic (AI + macro + price action) still tends to be more reliable than mechanical backfills.',
 
