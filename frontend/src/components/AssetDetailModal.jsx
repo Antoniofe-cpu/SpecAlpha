@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     AreaChart,
@@ -31,8 +31,10 @@ import {
     EyeOff,
     TrendingDown,
 } from 'lucide-react';
-import { fetchHistory, fetchOne, fetchMacro, fetchVerdict, fetchVerdictPerformance } from '../api';
-import { cn, formatNumber, formatSigned, getTrendAnalysis, TONE_CLASSES, downloadCSV } from '../utils';
+import html2canvas from 'html2canvas';
+import jsPDF from 'jspdf';
+import { fetchHistory, fetchMacro, fetchVerdict, fetchVerdictPerformance } from '../api';
+import { cn, formatNumber, formatSigned, getTrendAnalysis, TONE_CLASSES } from '../utils';
 
 const SERIES = [
     { key: 'netPosition', label: 'Net', color: '#f59e0b', gradId: 'gNet', yAxis: 'left', fmt: 'k' },
@@ -44,9 +46,10 @@ const SERIES = [
 export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleFav }) {
     const [history, setHistory] = useState([]);
     const [loading, setLoading] = useState(false);
-    const [refreshing, setRefreshing] = useState(false);
+    const [exporting, setExporting] = useState(false);
     const [windowSize, setWindowSize] = useState(26);
     const [snapshot, setSnapshot] = useState(asset);
+    const captureRef = useRef(null);
     const [visible, setVisible] = useState({
         netPosition: true,
         long: false,
@@ -138,17 +141,49 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
         });
     };
 
-    const handleRefresh = async () => {
-        setRefreshing(true);
+    const handleExport = async () => {
+        if (!captureRef.current || exporting) return;
+        setExporting(true);
         try {
-            const fresh = await fetchOne(asset.assetId, true);
-            const hist = await fetchHistory(asset.assetId, 100, true);
-            setSnapshot(fresh);
-            setHistory(hist);
+            // Auto-expand performance panel for full snapshot
+            const wasOpen = showPerformance;
+            if (!wasOpen) {
+                setShowPerformance(true);
+                if (!performance) await loadPerformance();
+                // wait a tick for the DOM to render
+                await new Promise((r) => setTimeout(r, 250));
+            }
+            const node = captureRef.current;
+            const canvas = await html2canvas(node, {
+                backgroundColor: '#0a0a0d',
+                scale: 2,
+                useCORS: true,
+                windowWidth: node.scrollWidth,
+                windowHeight: node.scrollHeight,
+            });
+            const imgData = canvas.toDataURL('image/png');
+            // Fit canvas into A4 portrait, multi-page if needed
+            const pdf = new jsPDF('p', 'mm', 'a4');
+            const pageW = pdf.internal.pageSize.getWidth();
+            const pageH = pdf.internal.pageSize.getHeight();
+            const imgW = pageW;
+            const imgH = (canvas.height * imgW) / canvas.width;
+            let heightLeft = imgH;
+            let position = 0;
+            pdf.addImage(imgData, 'PNG', 0, position, imgW, imgH);
+            heightLeft -= pageH;
+            while (heightLeft > 0) {
+                position = heightLeft - imgH;
+                pdf.addPage();
+                pdf.addImage(imgData, 'PNG', 0, position, imgW, imgH);
+                heightLeft -= pageH;
+            }
+            const fname = `${asset.assetId}_${snapshot.reportDate || 'snapshot'}.pdf`;
+            pdf.save(fname);
         } catch (e) {
-            console.error(e);
+            console.error('PDF export failed', e);
         } finally {
-            setRefreshing(false);
+            setExporting(false);
         }
     };
 
@@ -189,19 +224,8 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
     };
     const resetZoom = () => setZoomRange(null);
 
-    const handleExport = () => {
-        const rows = (history || []).map((h) => ({
-            date: h.date,
-            long: h.long,
-            short: h.short,
-            netPosition: h.netPosition,
-            wowDelta: h.wowDelta,
-            changeLong: h.changeLong,
-            changeShort: h.changeShort,
-            price: h.price ?? '',
-        }));
-        downloadCSV(`${asset.assetId}_cot_history.csv`, rows);
-    };
+
+
 
     return (
         <AnimatePresence>
@@ -221,6 +245,7 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                     onClick={(e) => e.stopPropagation()}
                     className="relative bg-[#0a0a0d] border border-white/10 sm:rounded-[28px] w-full max-w-6xl h-full sm:h-auto sm:max-h-[calc(100vh-3rem)] flex flex-col overflow-hidden shadow-[0_40px_120px_rgba(0,0,0,0.8)]"
                     data-testid="detail-modal"
+                    ref={captureRef}
                 >
                     {/* Header (sticky) */}
                     <div className="shrink-0 flex flex-wrap items-center justify-between gap-4 p-6 sm:p-8 border-b border-white/5">
@@ -245,20 +270,17 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                         </div>
                         <div className="flex items-center gap-2">
                             <button
-                                data-testid="modal-refresh-btn"
-                                onClick={handleRefresh}
-                                disabled={refreshing}
-                                className="px-4 py-2.5 text-[12px] font-semibold uppercase tracking-[0.18em] bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 rounded-2xl flex items-center gap-2 transition-colors"
-                            >
-                                <RefreshCw size={14} className={cn(refreshing && 'animate-spin')} />
-                                Refresh
-                            </button>
-                            <button
                                 data-testid="modal-export-btn"
                                 onClick={handleExport}
-                                className="px-4 py-2.5 text-[12px] font-semibold uppercase tracking-[0.18em] bg-white/[0.06] hover:bg-amber-500/15 hover:border-amber-500/40 border border-white/10 rounded-2xl flex items-center gap-2 transition-colors"
+                                disabled={exporting}
+                                className="px-4 py-2.5 text-[12px] font-semibold uppercase tracking-[0.18em] bg-white/[0.06] hover:bg-amber-500/15 hover:border-amber-500/40 border border-white/10 rounded-2xl flex items-center gap-2 transition-colors disabled:opacity-50"
                             >
-                                <Download size={14} /> CSV
+                                {exporting ? (
+                                    <RefreshCw size={14} className="animate-spin" />
+                                ) : (
+                                    <Download size={14} />
+                                )}
+                                {exporting ? 'Export…' : 'PDF'}
                             </button>
                             <button
                                 data-testid="modal-close-btn"

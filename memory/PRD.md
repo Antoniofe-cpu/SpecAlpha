@@ -41,6 +41,11 @@
 - Backend tests: 12/12 PASS
 - Frontend: 95% (only cold-cache transient banner; resolved on subsequent loads)
 
+## Latest Session (Feb 2026)
+- **P0 ✅** Retroactive verdict generation: Fixed broken `_backfill_verdicts` in `server.py` (NameError caused by stray duplicated code). Endpoint `/api/verdict/{asset}/performance` now auto-backfills 20 synthetic rule-based verdicts on first open → equity curve populated immediately.
+- **P1 ✅** PDF Snapshot Export: Replaced CSV with `html2canvas + jspdf` capture of full expanded modal (auto-opens performance panel). New `modal-export-btn` shows "PDF". Multi-page A4 portrait.
+- **P2 ✅** UI polish: Removed `modal-refresh-btn` from `AssetDetailModal`. Removed "CFTC ·" prefix from main header (only date + countdown remain).
+
 ## Backlog / Future
 - P1: Backend background warm-cache at startup to eliminate cold-cache flash
 - P1: Tooltip reposition on scroll/resize
