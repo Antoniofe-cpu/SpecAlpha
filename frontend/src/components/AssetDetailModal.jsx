@@ -436,152 +436,6 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                             </div>
                         </div>
 
-                        {/* Performance toggle */}
-                        <div>
-                            <button
-                                data-testid="toggle-performance-btn"
-                                onClick={togglePerformance}
-                                className="w-full flex items-center justify-between gap-3 px-5 py-3.5 bg-[#0e0e14] hover:bg-[#14141c] border border-white/[0.07] rounded-2xl transition-colors"
-                            >
-                                <div className="flex items-center gap-2">
-                                    {showPerformance ? (
-                                        <EyeOff size={15} className="text-amber-400" />
-                                    ) : (
-                                        <Eye size={15} className="text-amber-400" />
-                                    )}
-                                    <span className="text-[13px] font-semibold uppercase tracking-[0.18em] text-gray-200">
-                                        Performance Verdetti Precedenti
-                                    </span>
-                                </div>
-                                <span className="text-[11px] text-gray-500 font-mono">
-                                    {showPerformance ? 'Nascondi' : 'Mostra'}
-                                </span>
-                            </button>
-                            {showPerformance && (
-                                <div
-                                    data-testid="performance-panel"
-                                    className="mt-3 bg-[#0e0e14] border border-white/[0.07] rounded-3xl p-5"
-                                >
-                                    {performanceLoading ? (
-                                        <div className="flex items-center gap-2 text-gray-500 text-[13px]">
-                                            <RefreshCw size={14} className="animate-spin text-amber-400/60" />
-                                            Calcolo performance…
-                                        </div>
-                                    ) : performance ? (
-                                        <>
-                                            <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
-                                                {[
-                                                    { label: 'Total', v: performance.totalVerdicts },
-                                                    { label: 'Valutati', v: performance.evaluated },
-                                                    { label: 'Win', v: performance.wins, color: 'text-[#34d399]' },
-                                                    { label: 'Loss', v: performance.losses, color: 'text-[#fb7185]' },
-                                                    {
-                                                        label: 'Win rate',
-                                                        v: performance.winRate !== null ? `${performance.winRate}%` : '—',
-                                                        color: 'text-amber-300',
-                                                    },
-                                                ].map((s) => (
-                                                    <div key={s.label} className="bg-black/30 border border-white/5 rounded-2xl p-3">
-                                                        <div className="text-[10px] tracking-widest uppercase text-gray-500 font-semibold mb-1">
-                                                            {s.label}
-                                                        </div>
-                                                        <div className={cn('font-mono text-[18px] font-semibold tnum', s.color)}>
-                                                            {s.v ?? '—'}
-                                                        </div>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                            <div className="flex items-center justify-between mb-2">
-                                                <span className="text-[11px] uppercase tracking-[0.22em] text-gray-500 font-semibold">
-                                                    Cumulative P/L %
-                                                </span>
-                                                <span
-                                                    className={cn(
-                                                        'font-mono text-[16px] font-semibold tnum',
-                                                        performance.cumulativePnlPct >= 0 ? 'text-[#34d399]' : 'text-[#fb7185]'
-                                                    )}
-                                                >
-                                                    {formatSigned(performance.cumulativePnlPct)}%
-                                                </span>
-                                            </div>
-                                            {performance.history.length > 0 ? (
-                                                <div className="overflow-x-auto">
-                                                    <table className="w-full text-[12.5px]">
-                                                        <thead>
-                                                            <tr className="text-[10px] uppercase tracking-[0.2em] text-gray-500 font-semibold border-b border-white/5">
-                                                                <th className="px-3 py-2 text-left">Data</th>
-                                                                <th className="px-3 py-2 text-left">Verdetto</th>
-                                                                <th className="px-3 py-2 text-right">Entry</th>
-                                                                <th className="px-3 py-2 text-right">Exit</th>
-                                                                <th className="px-3 py-2 text-right">P/L %</th>
-                                                                <th className="px-3 py-2 text-left">Outcome</th>
-                                                            </tr>
-                                                        </thead>
-                                                        <tbody className="font-mono">
-                                                            {performance.history.map((r, i) => (
-                                                                <tr
-                                                                    key={i}
-                                                                    className={cn(
-                                                                        'border-b border-white/[0.04]',
-                                                                        i % 2 === 1 && 'bg-white/[0.02]'
-                                                                    )}
-                                                                >
-                                                                    <td className="px-3 py-2 text-gray-200">{r.verdictDate}</td>
-                                                                    <td
-                                                                        className={cn(
-                                                                            'px-3 py-2 font-semibold',
-                                                                            r.verdict === 'LONG' && 'text-[#34d399]',
-                                                                            r.verdict === 'SHORT' && 'text-[#fb7185]',
-                                                                            r.verdict === 'WAIT' && 'text-amber-300'
-                                                                        )}
-                                                                    >
-                                                                        {r.verdict}
-                                                                    </td>
-                                                                    <td className="px-3 py-2 text-right text-gray-200">
-                                                                        {r.entryPrice ?? '—'}
-                                                                    </td>
-                                                                    <td className="px-3 py-2 text-right text-gray-200">
-                                                                        {r.exitPrice ?? '—'}
-                                                                    </td>
-                                                                    <td
-                                                                        className={cn(
-                                                                            'px-3 py-2 text-right font-semibold',
-                                                                            r.pnlPct === null && 'text-gray-500',
-                                                                            r.pnlPct > 0 && 'text-[#34d399]',
-                                                                            r.pnlPct < 0 && 'text-[#fb7185]'
-                                                                        )}
-                                                                    >
-                                                                        {r.pnlPct !== null ? `${formatSigned(r.pnlPct)}%` : '—'}
-                                                                    </td>
-                                                                    <td
-                                                                        className={cn(
-                                                                            'px-3 py-2 text-[10px] uppercase tracking-widest font-bold',
-                                                                            r.outcome === 'WIN' && 'text-[#34d399]',
-                                                                            r.outcome === 'LOSS' && 'text-[#fb7185]',
-                                                                            r.outcome === 'PENDING' && 'text-gray-500',
-                                                                            r.outcome === 'NEUTRAL' && 'text-amber-300'
-                                                                        )}
-                                                                    >
-                                                                        {r.outcome}
-                                                                    </td>
-                                                                </tr>
-                                                            ))}
-                                                        </tbody>
-                                                    </table>
-                                                </div>
-                                            ) : (
-                                                <p className="text-[13px] text-gray-500 mt-3">
-                                                    Nessuno storico disponibile. Apri questo asset nei prossimi report per accumulare verdetti valutabili.
-                                                </p>
-                                            )}
-                                        </>
-                                    ) : (
-                                        <p className="text-[13px] text-gray-500">—</p>
-                                    )}
-                                </div>
-                            )}
-                        </div>
-
                         {/* Chart */}
                         <div className="bg-[#0e0e14] border border-white/[0.07] rounded-3xl p-6">
                             <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
@@ -868,6 +722,164 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                     </table>
                                 </div>
                             </div>
+                        </div>
+
+                        {/* Performance Verdetti (ultimo, collassabile) */}
+                        <div>
+                            <button
+                                data-testid="toggle-performance-btn"
+                                onClick={togglePerformance}
+                                className="w-full flex items-center justify-between gap-3 px-5 py-3.5 bg-[#0e0e14] hover:bg-[#14141c] border border-white/[0.07] rounded-2xl transition-colors"
+                            >
+                                <div className="flex items-center gap-2">
+                                    {showPerformance ? (
+                                        <EyeOff size={15} className="text-amber-400" />
+                                    ) : (
+                                        <Eye size={15} className="text-amber-400" />
+                                    )}
+                                    <span className="text-[13px] font-semibold uppercase tracking-[0.18em] text-gray-200">
+                                        Performance Verdetti Precedenti
+                                    </span>
+                                </div>
+                                <span className="text-[11px] text-gray-500 font-mono">
+                                    {showPerformance ? 'Nascondi' : 'Mostra'}
+                                </span>
+                            </button>
+                            {showPerformance && (
+                                <div
+                                    data-testid="performance-panel"
+                                    className="mt-3 bg-[#0e0e14] border border-white/[0.07] rounded-3xl p-5"
+                                >
+                                    <p className="text-[12.5px] text-gray-500 mb-4 leading-relaxed">
+                                        Logica: entry = close di lunedì · exit = close di venerdì della stessa settimana
+                                        (prezzi daily da Yahoo Finance).
+                                    </p>
+                                    {performanceLoading ? (
+                                        <div className="flex items-center gap-2 text-gray-500 text-[13px]">
+                                            <RefreshCw size={14} className="animate-spin text-amber-400/60" />
+                                            Calcolo performance…
+                                        </div>
+                                    ) : performance ? (
+                                        <>
+                                            <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
+                                                {[
+                                                    { label: 'Total', v: performance.totalVerdicts },
+                                                    { label: 'Valutati', v: performance.evaluated },
+                                                    { label: 'Win', v: performance.wins, color: 'text-[#34d399]' },
+                                                    { label: 'Loss', v: performance.losses, color: 'text-[#fb7185]' },
+                                                    {
+                                                        label: 'Win rate',
+                                                        v: performance.winRate !== null ? `${performance.winRate}%` : '—',
+                                                        color: 'text-amber-300',
+                                                    },
+                                                ].map((s) => (
+                                                    <div key={s.label} className="bg-black/30 border border-white/5 rounded-2xl p-3">
+                                                        <div className="text-[10px] tracking-widest uppercase text-gray-500 font-semibold mb-1">
+                                                            {s.label}
+                                                        </div>
+                                                        <div className={cn('font-mono text-[18px] font-semibold tnum', s.color)}>
+                                                            {s.v ?? '—'}
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                            <div className="flex items-center justify-between mb-2">
+                                                <span className="text-[11px] uppercase tracking-[0.22em] text-gray-500 font-semibold">
+                                                    Cumulative P/L %
+                                                </span>
+                                                <span
+                                                    className={cn(
+                                                        'font-mono text-[16px] font-semibold tnum',
+                                                        performance.cumulativePnlPct >= 0 ? 'text-[#34d399]' : 'text-[#fb7185]'
+                                                    )}
+                                                >
+                                                    {formatSigned(performance.cumulativePnlPct)}%
+                                                </span>
+                                            </div>
+                                            {performance.history.length > 0 ? (
+                                                <div className="overflow-x-auto">
+                                                    <table className="w-full text-[12.5px]">
+                                                        <thead>
+                                                            <tr className="text-[10px] uppercase tracking-[0.2em] text-gray-500 font-semibold border-b border-white/5">
+                                                                <th className="px-2 py-2 text-left">Report</th>
+                                                                <th className="px-2 py-2 text-left">Verdetto</th>
+                                                                <th className="px-2 py-2 text-left">Entry (Lun)</th>
+                                                                <th className="px-2 py-2 text-right">Price</th>
+                                                                <th className="px-2 py-2 text-left">Exit (Ven)</th>
+                                                                <th className="px-2 py-2 text-right">Price</th>
+                                                                <th className="px-2 py-2 text-right">P/L %</th>
+                                                                <th className="px-2 py-2 text-left">Outcome</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody className="font-mono">
+                                                            {performance.history.map((r, i) => (
+                                                                <tr
+                                                                    key={i}
+                                                                    className={cn(
+                                                                        'border-b border-white/[0.04]',
+                                                                        i % 2 === 1 && 'bg-white/[0.02]'
+                                                                    )}
+                                                                >
+                                                                    <td className="px-2 py-2 text-gray-200">{r.verdictDate}</td>
+                                                                    <td
+                                                                        className={cn(
+                                                                            'px-2 py-2 font-semibold',
+                                                                            r.verdict === 'LONG' && 'text-[#34d399]',
+                                                                            r.verdict === 'SHORT' && 'text-[#fb7185]',
+                                                                            r.verdict === 'WAIT' && 'text-amber-300'
+                                                                        )}
+                                                                    >
+                                                                        {r.verdict}
+                                                                    </td>
+                                                                    <td className="px-2 py-2 text-gray-500 text-[11px]">
+                                                                        {r.entryDate ?? '—'}
+                                                                    </td>
+                                                                    <td className="px-2 py-2 text-right text-gray-200">
+                                                                        {r.entryPrice != null ? Number(r.entryPrice).toFixed(2) : '—'}
+                                                                    </td>
+                                                                    <td className="px-2 py-2 text-gray-500 text-[11px]">
+                                                                        {r.exitDate ?? '—'}
+                                                                    </td>
+                                                                    <td className="px-2 py-2 text-right text-gray-200">
+                                                                        {r.exitPrice != null ? Number(r.exitPrice).toFixed(2) : '—'}
+                                                                    </td>
+                                                                    <td
+                                                                        className={cn(
+                                                                            'px-2 py-2 text-right font-semibold',
+                                                                            r.pnlPct === null && 'text-gray-500',
+                                                                            r.pnlPct > 0 && 'text-[#34d399]',
+                                                                            r.pnlPct < 0 && 'text-[#fb7185]'
+                                                                        )}
+                                                                    >
+                                                                        {r.pnlPct !== null ? `${formatSigned(r.pnlPct)}%` : '—'}
+                                                                    </td>
+                                                                    <td
+                                                                        className={cn(
+                                                                            'px-2 py-2 text-[10px] uppercase tracking-widest font-bold',
+                                                                            r.outcome === 'WIN' && 'text-[#34d399]',
+                                                                            r.outcome === 'LOSS' && 'text-[#fb7185]',
+                                                                            r.outcome === 'PENDING' && 'text-gray-500',
+                                                                            r.outcome === 'NEUTRAL' && 'text-amber-300'
+                                                                        )}
+                                                                    >
+                                                                        {r.outcome}
+                                                                    </td>
+                                                                </tr>
+                                                            ))}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            ) : (
+                                                <p className="text-[13px] text-gray-500 mt-3">
+                                                    Nessuno storico disponibile. Apri questo asset nei prossimi report per accumulare verdetti valutabili.
+                                                </p>
+                                            )}
+                                        </>
+                                    ) : (
+                                        <p className="text-[13px] text-gray-500">—</p>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     </div>
                 </motion.div>

@@ -35,6 +35,14 @@ from macro_scraper import (
     filter_events_for_asset,
     compact_events_text,
 )
+from price_scraper import (
+    fetch_daily_closes,
+    next_monday,
+    following_friday,
+    nearest_close_on_or_after,
+    nearest_close_on_or_before,
+    YAHOO_SYMBOL,
+)
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -451,45 +459,56 @@ async def final_verdict(asset_id: str, refresh: bool = Query(False)) -> Dict[str
 @api.get("/verdict/{asset_id}/performance")
 async def verdict_performance(asset_id: str) -> Dict[str, Any]:
     """
-    Evaluate past verdicts against subsequent price action.
-    For every stored verdict, finds the "exit price" from history (report closest to +7d)
-    and computes P/L (percent). Returns list + aggregate stats.
+    Weekly trading logic:
+      - COT is published Friday (data as of Tuesday). Trader enters MONDAY after publication.
+      - Exit on FRIDAY close of the same week.
+      - Entry/Exit prices fetched from Yahoo Finance daily close.
     """
     asset_id = asset_id.upper()
     if asset_id not in ASSET_MAP:
         raise HTTPException(status_code=404, detail="Unknown asset")
 
-    # Ensure history is fresh
-    hist = await cot_history(asset_id, limit=200)
-    price_by_date: Dict[str, float] = {
-        h["date"]: h.get("price") for h in hist if h.get("price") is not None
-    }
-
     cursor = db[VERDICT_HISTORY_COLL].find(
         {"assetId": asset_id}, {"_id": 0}
     ).sort("savedAt", 1)
     verdicts = await cursor.to_list(length=500)
-    results = []
-    wins = losses = skipped = 0
-    pnl_sum = 0.0
 
     # Deduplicate by entryReportDate (keep first verdict per COT report)
     seen_entries = set()
+    unique_verdicts = []
     for v in verdicts:
-        entry_date = v.get("entryReportDate")
-        if not entry_date or entry_date in seen_entries:
+        ed = v.get("entryReportDate")
+        if not ed or ed in seen_entries:
             continue
-        seen_entries.add(entry_date)
-        entry_price = v.get("entryPrice")
-        if entry_price is None:
-            continue
-        # Find the report immediately after the entry date
-        later = [d for d in sorted(price_by_date) if d > entry_date]
-        exit_date = later[0] if later else None
-        exit_price = price_by_date.get(exit_date) if exit_date else None
+        seen_entries.add(ed)
+        unique_verdicts.append(v)
+
+    # Batch-fetch daily prices covering all verdict weeks
+    prices: Dict[str, float] = {}
+    if unique_verdicts and asset_id in YAHOO_SYMBOL:
+        dates = [v["entryReportDate"] for v in unique_verdicts if v.get("entryReportDate")]
+        if dates:
+            min_d = datetime.strptime(min(dates), "%Y-%m-%d")
+            max_d = datetime.strptime(max(dates), "%Y-%m-%d") + timedelta(days=14)
+            prices = await fetch_daily_closes(asset_id, min_d - timedelta(days=3), max_d)
+
+    results = []
+    wins = losses = pending = 0
+    pnl_sum = 0.0
+    for v in unique_verdicts:
+        report_date = v.get("entryReportDate")
+        monday = next_monday(report_date)
+        friday = following_friday(monday)
+        entry = nearest_close_on_or_after(prices, monday)
+        exit_ = nearest_close_on_or_before(prices, friday)
+        entry_price = entry[1] if entry else None
+        exit_price = exit_[1] if exit_ else None
+        entry_date = entry[0] if entry else monday
+        exit_date = exit_[0] if exit_ else None
+
         pnl_pct = None
         outcome = "PENDING"
-        if exit_price is not None:
+        if entry_price is not None and exit_price is not None:
             direction = 1 if v.get("verdict") == "LONG" else (-1 if v.get("verdict") == "SHORT" else 0)
             if direction == 0:
                 outcome = "NEUTRAL"
@@ -505,11 +524,13 @@ async def verdict_performance(asset_id: str) -> Dict[str, Any]:
                     outcome = "FLAT"
                 pnl_sum += pnl_pct
         else:
-            skipped += 1
+            pending += 1
+
         results.append({
-            "verdictDate": entry_date,
+            "verdictDate": report_date,
             "verdict": v.get("verdict"),
             "confidence": v.get("confidence"),
+            "entryDate": entry_date,
             "entryPrice": entry_price,
             "exitDate": exit_date,
             "exitPrice": exit_price,
@@ -526,7 +547,7 @@ async def verdict_performance(asset_id: str) -> Dict[str, Any]:
         "evaluated": total_evaluated,
         "wins": wins,
         "losses": losses,
-        "pending": skipped,
+        "pending": pending,
         "winRate": win_rate,
         "cumulativePnlPct": round(pnl_sum, 2),
         "history": list(reversed(results))[:30],
