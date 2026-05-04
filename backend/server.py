@@ -57,6 +57,37 @@ db = client[os.environ["DB_NAME"]]
 
 CACHE_TTL_HOURS = int(os.environ.get("COT_CACHE_TTL_HOURS", "6"))
 EMERGENT_LLM_KEY = os.environ.get("EMERGENT_LLM_KEY")
+# Direct Google Gemini API key — used for self-hosted deployments (Render/Railway/etc.).
+# When set, takes priority over EMERGENT_LLM_KEY (which only works inside Emergent).
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+
+
+async def _gemini_direct_call(system: str, user: str) -> Optional[str]:
+    """Call Google Gemini API directly via google-genai SDK.
+
+    Returns the response text, or None on failure / when GEMINI_API_KEY is unset.
+    Runs the synchronous SDK in a thread to keep the event loop free.
+    """
+    if not GEMINI_API_KEY:
+        return None
+    try:
+        from google import genai  # type: ignore
+        from google.genai import types  # type: ignore
+
+        def _sync_call() -> str:
+            client_g = genai.Client(api_key=GEMINI_API_KEY)
+            resp = client_g.models.generate_content(
+                model=GEMINI_MODEL,
+                contents=user,
+                config=types.GenerateContentConfig(system_instruction=system),
+            )
+            return (getattr(resp, "text", "") or "").strip()
+
+        return await asyncio.to_thread(_sync_call)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Gemini direct call failed: %s", e)
+        return None
 
 # ---------------------------------------------------------------------------
 # AI Insight (Gemini via emergentintegrations)
@@ -117,6 +148,16 @@ async def generate_macro_insight(asset_id: str, snapshot: Dict[str, Any], lang: 
             "Sintetizza posizionamento, momentum settimanale e implicazioni operative. Solo italiano."
         )
 
+    if not EMERGENT_LLM_KEY and not GEMINI_API_KEY:
+        return fallback
+
+    # Priority 1: Direct Gemini API (works in any deployment)
+    direct = await _gemini_direct_call(system, prompt_tpl)
+    if direct:
+        text = direct.strip().strip('"').strip("'")
+        return text[:240] if len(text) > 10 else fallback
+
+    # Priority 2: Emergent LLM Key (works only inside Emergent platform)
     if not EMERGENT_LLM_KEY:
         return fallback
 
@@ -367,6 +408,15 @@ async def _get_calendar_events():
 
 
 async def _llm_generate(system: str, user: str, session: str, fallback: str) -> str:
+    if not EMERGENT_LLM_KEY and not GEMINI_API_KEY:
+        return fallback
+
+    # Priority 1: Direct Gemini API (works in any deployment)
+    direct = await _gemini_direct_call(system, user)
+    if direct:
+        return direct
+
+    # Priority 2: Emergent LLM Key (only inside Emergent platform)
     if not EMERGENT_LLM_KEY:
         return fallback
     try:
