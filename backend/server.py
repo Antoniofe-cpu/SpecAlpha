@@ -46,7 +46,7 @@ from price_scraper import (
 )
 from options_scraper import get_options_analytics, OPTIONS_MAP
 from sentiment_calculator import calculate_sentiment_from_cot, calculate_sentiment_history
-from myfxbook_scraper import fetch_myfxbook_sentiment
+from fear_greed_scraper import get_retail_sentiment, fetch_fear_greed_index
 from price_scraper import fetch_daily_closes, YAHOO_SYMBOL
 
 ROOT_DIR = Path(__file__).parent
@@ -581,11 +581,11 @@ async def _options_with_underlying(asset_id: str) -> Optional[Dict[str, Any]]:
 
 
 # ---------------------------------------------------------------------------
-# Sentiment Calculator (COT + MyFxBook + Yahoo Finance Prices)
+# Sentiment Calculator (COT + Fear & Greed + Yahoo Finance Prices)
 # ---------------------------------------------------------------------------
 @api.get("/sentiment/{asset_id}")
 async def get_sentiment(asset_id: str) -> Dict[str, Any]:
-    """Calculate market sentiment from COT + MyFxBook community sentiment.
+    """Calculate market sentiment from COT + Fear & Greed Index (crypto retail).
     
     Returns sentiment score, interpretation, historical trend, and Yahoo Finance prices.
     """
@@ -600,15 +600,17 @@ async def get_sentiment(asset_id: str) -> Dict[str, Any]:
     
     # Calculate current sentiment from COT
     sentiment = calculate_sentiment_from_cot(cot_snap)
+    sentiment["source"] = "COT Calculated"  # Default source
     
-    # Try to get MyFxBook sentiment (overwrites long/short percentages if available)
-    myfxbook_sentiment = await fetch_myfxbook_sentiment(asset_id)
-    if myfxbook_sentiment:
-        sentiment["longPercentage"] = myfxbook_sentiment["longPercentage"]
-        sentiment["shortPercentage"] = myfxbook_sentiment["shortPercentage"]
-        sentiment["source"] = "MyFxBook"
-    else:
-        sentiment["source"] = "COT Calculated"
+    # Try Fear & Greed Index for crypto assets (retail sentiment)
+    if asset_id in {"BTC", "ETH"}:
+        fg_sentiment = await get_retail_sentiment(asset_id)
+        if fg_sentiment:
+            sentiment["longPercentage"] = fg_sentiment["longPercentage"]
+            sentiment["shortPercentage"] = fg_sentiment["shortPercentage"]
+            sentiment["source"] = fg_sentiment["source"]
+            sentiment["rawValue"] = fg_sentiment.get("rawValue")
+            sentiment["classification"] = fg_sentiment.get("classification")
     
     # Get historical data for sentiment trend
     history = await cot_history(asset_id, limit=12)
