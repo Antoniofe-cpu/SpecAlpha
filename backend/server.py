@@ -44,6 +44,7 @@ from price_scraper import (
     nearest_close_on_or_before,
     YAHOO_SYMBOL,
 )
+from options_scraper import get_options_analytics, OPTIONS_MAP
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -218,6 +219,10 @@ MACRO_COLL = "macro_cache"
 VERDICT_COLL = "verdict_cache"
 VERDICT_HISTORY_COLL = "verdict_history"
 CALENDAR_COLL = "calendar_cache"
+OPTIONS_COLL = "options_cache"
+# Permanent AI insight cache, keyed by (asset, reportDate, lang).
+# Never expires: regenerated only when reportDate changes (i.e. a new COT report).
+AI_INSIGHT_COLL = "ai_insight_cache"
 
 MACRO_TTL_HOURS = 72    # macro summary updates every 3 days
 VERDICT_TTL_HOURS = 24  # verdict updates daily
@@ -226,6 +231,26 @@ CALENDAR_TTL_HOURS = 6  # calendar scrape cached 6h
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+# ---- Permanent per-report AI insight cache ----
+async def get_ai_insight(kind: str, asset_id: str, report_date: str, lang: str) -> Optional[Dict[str, Any]]:
+    """Look up a previously-generated AI artefact for this (kind, asset, reportDate, lang).
+    Returns the saved data dict, or None if not present.
+    """
+    key = f"{kind}__{asset_id}__{report_date}__{lang}"
+    doc = await db[AI_INSIGHT_COLL].find_one({"_id": key}, {"_id": 0})
+    return doc["data"] if doc else None
+
+
+async def set_ai_insight(kind: str, asset_id: str, report_date: str, lang: str, data: Any) -> None:
+    """Store an AI artefact permanently (never expires) keyed on the report date."""
+    key = f"{kind}__{asset_id}__{report_date}__{lang}"
+    await db[AI_INSIGHT_COLL].update_one(
+        {"_id": key},
+        {"$set": {"data": data, "savedAt": _now().isoformat()}},
+        upsert=True,
+    )
 
 
 async def get_cached(asset_id: str, lang: str = "it") -> Optional[Dict[str, Any]]:
@@ -337,12 +362,33 @@ async def _fetch_snapshot(asset_id: str, force: bool = False, lang: str = "it") 
         "type": meta["type"],
         **raw,
     }
-    macro_text, used_fallback = await generate_macro_insight(asset_id, snapshot, lang=lang)
-    snapshot["macro"] = macro_text
+    report_date = str(snapshot.get("reportDate") or "")
+    # 1) Try the permanent AI insight cache (keyed on reportDate). If a macro
+    #    insight already exists for THIS exact report, reuse it forever — only
+    #    when a new COT report arrives (different reportDate) we regenerate.
+    cached_macro = None
+    if report_date:
+        cached = await get_ai_insight("macro", asset_id, report_date, lang)
+        if cached and isinstance(cached.get("text"), str) and not cached.get("fallback"):
+            cached_macro = cached["text"]
+
+    if cached_macro:
+        snapshot["macro"] = cached_macro
+        used_fallback = False
+    else:
+        macro_text, used_fallback = await generate_macro_insight(asset_id, snapshot, lang=lang)
+        snapshot["macro"] = macro_text
+        # Persist only real AI-generated insights (not the deterministic fallback)
+        if report_date and not used_fallback:
+            await set_ai_insight("macro", asset_id, report_date, lang, {
+                "text": macro_text,
+                "fallback": False,
+            })
+
     snapshot["fetchedAt"] = _now().isoformat()
-    # Only cache when AI generated a real insight; otherwise let next call retry.
-    if not used_fallback:
-        await set_cached(asset_id, snapshot, lang=lang)
+    # Always cache the scrape result (short TTL keeps page loads snappy);
+    # the AI text inside is stable thanks to the permanent insight cache above.
+    await set_cached(asset_id, snapshot, lang=lang)
     return snapshot
 
 
@@ -414,14 +460,15 @@ async def refresh_all() -> Dict[str, Any]:
     """Manual / cron-triggered refresh.
 
     Clears only the per-asset snapshot cache + per-asset macro/verdict caches
-    (so the NEXT fetch produces fresh AI insight). Does NOT touch
-    cot_history (the accumulated weekly time-series) — that data is
-    immutable and rebuilt incrementally by the scrapers.
+    (so the NEXT fetch produces fresh AI insight). Also wipes the permanent
+    per-report AI insight cache so the next visit forces a clean regeneration.
+    Does NOT touch cot_history (the accumulated weekly time-series).
     """
     await db[CACHE_COLL].delete_many({})
     await db[MACRO_COLL].delete_many({})
     await db[VERDICT_COLL].delete_many({})
     await db[CALENDAR_COLL].delete_many({})
+    await db[AI_INSIGHT_COLL].delete_many({})
     return {"status": "cache cleared", "time": _now().isoformat()}
 
 
@@ -438,6 +485,49 @@ async def cron_warm() -> Dict[str, Any]:
     """
     asyncio.create_task(_prewarm_all_assets(scope="all"))
     return {"status": "warm started", "time": _now().isoformat()}
+
+
+# ---------------------------------------------------------------------------
+# Options & GEX (refreshed weekly, cached per (asset, expiry))
+# ---------------------------------------------------------------------------
+@api.get("/options/{asset_id}")
+async def options_analytics(asset_id: str, refresh: bool = Query(False)) -> Dict[str, Any]:
+    """Weekly options analytics: Max Pain, OI walls, GEX (indices/commodities)
+    or Risk Reversal / Vol Skew (currencies, VIX, BTC).
+
+    Cached weekly: result is keyed on the actual options expiry date — when a
+    new weekly expiry rolls, the next call regenerates automatically. Safe to
+    call any time; auto-refreshes when the cached expiry is in the past.
+    """
+    asset_id = asset_id.upper()
+    if asset_id not in OPTIONS_MAP:
+        raise HTTPException(status_code=404, detail=f"Options not supported for {asset_id}")
+
+    cache_key = asset_id
+    if not refresh:
+        doc = await db[OPTIONS_COLL].find_one({"_id": cache_key}, {"_id": 0})
+        if doc:
+            data = doc.get("data") or {}
+            expiry = data.get("expiry")
+            if expiry:
+                try:
+                    exp_date = datetime.strptime(expiry, "%Y-%m-%d").date()
+                    # If the cached expiry is still in the future, reuse it.
+                    if exp_date >= _now().date():
+                        return data
+                except ValueError:
+                    pass
+
+    result = await get_options_analytics(asset_id)
+    if not result:
+        raise HTTPException(status_code=503, detail="Options chain unavailable")
+
+    await db[OPTIONS_COLL].update_one(
+        {"_id": cache_key},
+        {"$set": {"data": result, "fetchedAt": _now().isoformat()}},
+        upsert=True,
+    )
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -491,8 +581,21 @@ async def macro_sentiment(asset_id: str, refresh: bool = Query(False), lang: str
     if asset_id not in ASSET_MAP:
         raise HTTPException(status_code=404, detail="Unknown asset")
 
+    # Find the current report date for this asset (used as the permanent cache key)
+    snap = await get_cached(asset_id, lang=lang)
+    if snap is None:
+        # Lazy-load to obtain reportDate
+        snap = await _fetch_snapshot(asset_id, lang=lang)
+    report_date = str((snap or {}).get("reportDate") or "")
+
     cache_key = f"{asset_id}__{lang}"
+    if not refresh and report_date:
+        # Permanent per-report cache (never expires)
+        permanent = await get_ai_insight("macro_sent", asset_id, report_date, lang)
+        if permanent:
+            return permanent
     if not refresh:
+        # Fallback: legacy short-TTL cache (for entries pre-permanent-cache)
         doc = await db[MACRO_COLL].find_one({"_id": cache_key}, {"_id": 0})
         if doc:
             fetched_at = datetime.fromisoformat(doc["fetchedAt"])
@@ -524,6 +627,7 @@ async def macro_sentiment(asset_id: str, refresh: bool = Query(False), lang: str
         fallback = f"Nessuna news rilevante nel range settimanale. {len(relevant)} eventi macro tracciati da tradingeconomics."
 
     summary = await _llm_generate(system, prompt, f"macro-{asset_id}-{lang}", fallback)
+    is_real_ai = bool(summary) and summary != fallback
     data = {
         "assetId": asset_id,
         "summary": summary[:280],
@@ -534,6 +638,9 @@ async def macro_sentiment(asset_id: str, refresh: bool = Query(False), lang: str
     await db[MACRO_COLL].update_one(
         {"_id": cache_key}, {"$set": {"data": data, "fetchedAt": _now().isoformat()}}, upsert=True,
     )
+    # Persist permanently per (asset, reportDate, lang) only when AI succeeded
+    if is_real_ai and report_date:
+        await set_ai_insight("macro_sent", asset_id, report_date, lang, data)
     return data
 
 
@@ -544,7 +651,17 @@ async def final_verdict(asset_id: str, refresh: bool = Query(False), lang: str =
     if asset_id not in ASSET_MAP:
         raise HTTPException(status_code=404, detail="Unknown asset")
 
+    # Establish current reportDate for permanent caching
+    snap = await get_cached(asset_id, lang=lang)
+    if snap is None:
+        snap = await _fetch_snapshot(asset_id, lang=lang)
+    report_date = str((snap or {}).get("reportDate") or "")
+
     cache_key = f"{asset_id}__{lang}"
+    if not refresh and report_date:
+        permanent = await get_ai_insight("verdict", asset_id, report_date, lang)
+        if permanent:
+            return permanent
     if not refresh:
         doc = await db[VERDICT_COLL].find_one({"_id": cache_key}, {"_id": 0})
         if doc:
@@ -595,6 +712,7 @@ async def final_verdict(asset_id: str, refresh: bool = Query(False), lang: str =
         fallback_json = '{"verdict":"WAIT","confidence":2,"summary":"Dati insufficienti per un verdetto solido."}'
 
     raw = await _llm_generate(system, context, f"verdict-{asset_id}-{lang}", fallback_json)
+    is_real_ai = bool(raw) and raw != fallback_json
     import json as _json
     parsed = None
     try:
@@ -627,6 +745,9 @@ async def final_verdict(asset_id: str, refresh: bool = Query(False), lang: str =
     )
     # Append to immutable verdict history for later P/L tracking
     await db[VERDICT_HISTORY_COLL].insert_one({**data, "savedAt": _now().isoformat()})
+    # Persist permanently per (asset, reportDate, lang) only when AI succeeded
+    if is_real_ai and report_date:
+        await set_ai_insight("verdict", asset_id, report_date, lang, data)
     return data
 
 
@@ -956,6 +1077,35 @@ async def _prewarm_all_assets(scope: str = "core") -> None:
     logger.info("Pre-warm completed (%d assets)", len(asset_ids))
 
 
+async def _prewarm_options() -> None:
+    """Pre-fetch options analytics for every supported asset. Cached weekly."""
+    logger.info("Options pre-warm started for %d assets", len(OPTIONS_MAP))
+    for aid in OPTIONS_MAP:
+        try:
+            doc = await db[OPTIONS_COLL].find_one({"_id": aid}, {"_id": 0})
+            stale = True
+            if doc:
+                expiry = (doc.get("data") or {}).get("expiry")
+                if expiry:
+                    try:
+                        if datetime.strptime(expiry, "%Y-%m-%d").date() >= _now().date():
+                            stale = False
+                    except ValueError:
+                        pass
+            if stale:
+                result = await get_options_analytics(aid)
+                if result:
+                    await db[OPTIONS_COLL].update_one(
+                        {"_id": aid},
+                        {"$set": {"data": result, "fetchedAt": _now().isoformat()}},
+                        upsert=True,
+                    )
+            await asyncio.sleep(0.8)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("options pre-warm failed for %s: %s", aid, e)
+    logger.info("Options pre-warm completed")
+
+
 async def _saturday_refresh_loop() -> None:
     """Every Saturday at 22:00 UTC clear caches AND pre-warm so users on
     Sunday morning find fresh data already loaded."""
@@ -974,8 +1124,10 @@ async def _saturday_refresh_loop() -> None:
             await db[CACHE_COLL].delete_many({})
             await db[MACRO_COLL].delete_many({})
             await db[VERDICT_COLL].delete_many({})
+            await db[OPTIONS_COLL].delete_many({})
             # Pre-warm so next visitor gets data instantly
             await _prewarm_all_assets(scope="all")
+            await _prewarm_options()
         except asyncio.CancelledError:
             raise
         except Exception as e:  # noqa: BLE001
@@ -990,6 +1142,8 @@ async def on_startup() -> None:
     # Initial pre-warm on startup so the very first visit (e.g. after a
     # cold-start on Render free tier) finds populated data within ~1 min.
     _warm_task = asyncio.create_task(_prewarm_all_assets(scope="core"))
+    # Options pre-warm runs in its own task — Yahoo throttling can be slow.
+    asyncio.create_task(_prewarm_options())
 
 
 @app.on_event("shutdown")

@@ -33,9 +33,10 @@ import {
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { fetchHistory, fetchMacro, fetchVerdict, fetchVerdictPerformance } from '../api';
+import { fetchHistory, fetchMacro, fetchVerdict, fetchVerdictPerformance, fetchOptions } from '../api';
 import { cn, formatNumber, formatSigned, getTrendAnalysis, TONE_CLASSES } from '../utils';
 import { useT } from '../i18n';
+import OptionsPanel from './OptionsPanel';
 
 const SERIES = [
     { key: 'netPosition', label: 'Net', color: '#f59e0b', gradId: 'gNet', yAxis: 'left', fmt: 'k' },
@@ -68,6 +69,9 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
     const [performance, setPerformance] = useState(null);
     const [performanceLoading, setPerformanceLoading] = useState(false);
     const [perfMode, setPerfMode] = useState('LTS'); // 'LTS' | 'ST'
+    const [options, setOptions] = useState(null);
+    const [optionsLoading, setOptionsLoading] = useState(false);
+    const [optionsError, setOptionsError] = useState(false);
 
     const toggleSeries = (k) =>
         setVisible((v) => {
@@ -111,6 +115,9 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
         setVerdict(null);
         setPerformance(null);
         setShowPerformance(false);
+        setOptions(null);
+        setOptionsError(false);
+        setOptionsLoading(true);
         fetchMacro(asset.assetId, false, lang)
             .then((d) => !cancelled && setMacro(d))
             .catch(() => {})
@@ -119,6 +126,10 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
             .then((d) => !cancelled && setVerdict(d))
             .catch(() => {})
             .finally(() => !cancelled && setVerdictLoading(false));
+        fetchOptions(asset.assetId)
+            .then((d) => !cancelled && setOptions(d))
+            .catch(() => !cancelled && setOptionsError(true))
+            .finally(() => !cancelled && setOptionsLoading(false));
         return () => { cancelled = true; };
     }, [asset?.assetId, lang]);
 
@@ -964,6 +975,16 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                 )}
                             </div>
                         </div>
+
+                        {/* Options & GEX panel — sits above the historical chart */}
+                        {(optionsLoading || options || optionsError) && (
+                            <OptionsPanel
+                                data={options}
+                                loading={optionsLoading}
+                                error={optionsError}
+                                supported={true}
+                            />
+                        )}
 
                         {/* Chart */}
                         <div className="bg-[#0e0e14] border border-white/[0.07] rounded-3xl p-6">

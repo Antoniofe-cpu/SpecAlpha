@@ -10,7 +10,7 @@ import {
     Activity,
     Star,
     Globe,
-    MousePointerClick,
+    Plus,
 } from 'lucide-react';
 import './App.css';
 import AssetCard from './components/AssetCard';
@@ -366,28 +366,36 @@ export default function App() {
                                     </div>
                                 </div>
                             ))}
+                            {/* Phantom "+" card — inline in the grid, only when on Core scope */}
+                            {scope === 'core' && pendingAssets.length === 0 && (
+                                <motion.button
+                                    type="button"
+                                    data-testid="show-all-card"
+                                    onClick={() => setScope('all')}
+                                    initial={{ opacity: 0, scale: 0.97 }}
+                                    animate={{ opacity: 1, scale: 1 }}
+                                    transition={{ duration: 0.5, delay: visibleAssets.length * 0.04, ease: [0.22, 1, 0.36, 1] }}
+                                    whileHover={{ scale: 1.01, y: -4 }}
+                                    className="group h-[460px] rounded-[28px] border border-dashed border-white/15 hover:border-amber-400/50 bg-white/[0.015] hover:bg-amber-500/[0.04] transition-colors flex flex-col items-center justify-center gap-5 p-7 text-left"
+                                >
+                                    <span className="relative flex h-16 w-16 items-center justify-center rounded-full border border-white/10 group-hover:border-amber-400/50 bg-white/[0.02] group-hover:bg-amber-500/[0.08] transition-colors">
+                                        <span className="absolute inset-0 rounded-full border border-amber-400/0 group-hover:border-amber-400/30 animate-ping" />
+                                        <Plus size={28} className="text-gray-500 group-hover:text-amber-300 transition-colors" strokeWidth={1.5} />
+                                    </span>
+                                    <div className="text-center px-4">
+                                        <div className="text-[12px] tracking-[0.28em] uppercase font-bold text-gray-500 group-hover:text-amber-300 transition-colors mb-2">
+                                            {t('app.show_all_kicker')}
+                                        </div>
+                                        <div className="font-display text-[18px] font-semibold text-gray-300 group-hover:text-white transition-colors leading-snug">
+                                            {t('app.show_all_title')}
+                                        </div>
+                                        <div className="text-[12px] text-gray-600 group-hover:text-gray-400 transition-colors mt-2 font-mono">
+                                            {t('app.show_all_hint')}
+                                        </div>
+                                    </div>
+                                </motion.button>
+                            )}
                         </div>
-                    )}
-                    {/* Soft cue: invite users to click any card to expand */}
-                    {visibleAssets.length > 0 && pendingAssets.length === 0 && (
-                        <motion.div
-                            data-testid="expand-hint"
-                            initial={{ opacity: 0, y: 8 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ duration: 0.6, delay: 0.4, ease: [0.22, 1, 0.36, 1] }}
-                            className="mt-8 flex justify-center"
-                        >
-                            <div className="group inline-flex items-center gap-2 px-4 py-2 rounded-full border border-white/[0.06] bg-white/[0.02] hover:border-amber-500/30 hover:bg-amber-500/[0.04] transition-colors">
-                                <span className="relative flex h-2 w-2">
-                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400/50 opacity-75" />
-                                    <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-400" />
-                                </span>
-                                <MousePointerClick size={13} className="text-amber-300/70 group-hover:text-amber-300 transition-colors" />
-                                <span className="text-[11px] uppercase tracking-[0.22em] text-gray-400 group-hover:text-gray-200 transition-colors font-semibold">
-                                    {t('app.expand_hint')}
-                                </span>
-                            </div>
-                        </motion.div>
                     )}
                 </section>
 
