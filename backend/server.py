@@ -613,7 +613,37 @@ async def get_sentiment(asset_id: str) -> Dict[str, Any]:
     
     # Build response
     if retail_sentiment:
+        # Convert TradingView score (-1 to +1) to our scale (-100 to +100)
+        raw_value = retail_sentiment.get("components", {}).get("overall", 0)
+        score = raw_value * 100  # -1 → -100, +1 → +100
+        
+        # Determine interpretation from score
+        if score >= 70:
+            interpretation = "Extremely Bullish"
+            color = "#10b981"
+        elif score >= 40:
+            interpretation = "Bullish"
+            color = "#34d399"
+        elif score >= 10:
+            interpretation = "Slightly Bullish"
+            color = "#34d399"
+        elif score > -10:
+            interpretation = "Neutral"
+            color = "#94a3b8"
+        elif score > -40:
+            interpretation = "Slightly Bearish"
+            color = "#fb7185"
+        elif score > -70:
+            interpretation = "Bearish"
+            color = "#f43f5e"
+        else:
+            interpretation = "Extremely Bearish"
+            color = "#f43f5e"
+        
         current_sentiment = {
+            "score": round(score, 2),
+            "interpretation": interpretation,
+            "color": color,
             "longPercentage": retail_sentiment["longPercentage"],
             "shortPercentage": retail_sentiment["shortPercentage"],
             "source": retail_sentiment["source"],
@@ -629,6 +659,9 @@ async def get_sentiment(asset_id: str) -> Dict[str, Any]:
         
         cot_sentiment = calculate_sentiment_from_cot(cot_snap)
         current_sentiment = {
+            "score": cot_sentiment["score"],
+            "interpretation": cot_sentiment["interpretation"],
+            "color": cot_sentiment["color"],
             "longPercentage": cot_sentiment["longPercentage"],
             "shortPercentage": cot_sentiment["shortPercentage"],
             "source": "COT Institutional (fallback)",
