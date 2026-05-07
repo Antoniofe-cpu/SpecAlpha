@@ -46,7 +46,7 @@ from price_scraper import (
 )
 from options_scraper import get_options_analytics, OPTIONS_MAP
 from sentiment_calculator import calculate_sentiment_from_cot, calculate_sentiment_history
-from tradingview_scraper import fetch_tradingview_sentiment
+from myfxbook_scraper import get_myfxbook_positioning
 from fear_greed_scraper import get_retail_sentiment
 from price_scraper import fetch_daily_closes, YAHOO_SYMBOL
 
@@ -582,82 +582,100 @@ async def _options_with_underlying(asset_id: str) -> Optional[Dict[str, Any]]:
 
 
 # ---------------------------------------------------------------------------
-# Sentiment Calculator (TradingView Technical + Fear & Greed + Yahoo Finance Prices)
-# CONTRARIAN STRATEGY: Trade AGAINST crowd when overextended
+# Sentiment Calculator (MyFxBook REAL Positioning + Yahoo Finance Prices)
+# CONTRARIAN STRATEGY: Trade AGAINST retail crowd positioning
 # ---------------------------------------------------------------------------
 @api.get("/sentiment/{asset_id}")
 async def get_sentiment(asset_id: str) -> Dict[str, Any]:
-    """Calculate market sentiment from TradingView technical analysis + Fear & Greed (crypto).
+    """Calculate market sentiment from REAL retail positioning (MyFxBook verified accounts).
     
-    PRIMARY SOURCE: TradingView Technical Analysis (26 indicators aggregated)
-    - Works for ALL asset classes: forex, indices, commodities, crypto
-    - Real-time technical sentiment
+    PRIMARY SOURCE: MyFxBook Community Outlook (real trader positioning)
+    - Works for forex, gold, silver, oil, BTC
+    - Real long/short percentages from verified live accounts
     
     CONTRARIAN LOGIC:
-    - Technical >80% bullish → SELL (overextended)
-    - Technical <20% bullish → BUY (oversold)
-    - 40-60% → NEUTRAL
+    - >70% long → Overextended → SELL signal
+    - <30% long → Capitulated → BUY signal
     
-    Returns sentiment, contrarian signals, and Yahoo Finance prices.
+    Returns sentiment with REAL positioning data.
     """
     asset_id = asset_id.upper()
     if asset_id not in ASSET_MAP:
         raise HTTPException(status_code=404, detail="Unknown asset")
     
-    # Try TradingView technical sentiment first (works for ALL assets)
-    retail_sentiment = await fetch_tradingview_sentiment(asset_id)
+    # Try MyFxBook REAL positioning first
+    retail_positioning = await get_myfxbook_positioning(asset_id)
     
-    # Fallback to Fear & Greed for crypto if TradingView fails
-    if not retail_sentiment and asset_id in {"BTC", "ETH"}:
-        retail_sentiment = await get_retail_sentiment(asset_id)
+    # Fallback to Fear & Greed for crypto if MyFxBook unavailable
+    if not retail_positioning and asset_id in {"BTC", "ETH"}:
+        retail_positioning = await get_retail_sentiment(asset_id)
     
     # Build response
-    if retail_sentiment:
-        # Convert TradingView score (-1 to +1) to our scale (-100 to +100)
-        raw_value = retail_sentiment.get("components", {}).get("overall", 0)
-        crowd_score = raw_value * 100  # Crowd sentiment
+    if retail_positioning:
+        long_pct = retail_positioning["longPercentage"]
+        short_pct = retail_positioning["shortPercentage"]
         
-        # CONTRARIAN INVERSION: If crowd is bullish, we should be bearish
-        # Invert the score for contrarian strategy
-        score = -crowd_score  # +51 crowd bullish → -51 contrarian bearish (SELL)
+        # Calculate sentiment score from positioning (NO INVERSION - show crowd sentiment)
+        # Score = (long% - 50) * 2 → Range -100 to +100
+        # 75% long → +50 score (bullish crowd)
+        # 25% long → -50 score (bearish crowd)
+        score = (long_pct - 50) * 2
         
-        # Determine interpretation from CONTRARIAN score
+        # Determine interpretation
         if score >= 70:
-            interpretation = "Extremely Bullish"  # Crowd panic = BUY
+            interpretation = "Extremely Bullish"
             color = "#10b981"
         elif score >= 40:
-            interpretation = "Bullish"  # Crowd bearish = BUY
+            interpretation = "Bullish"
             color = "#34d399"
         elif score >= 10:
-            interpretation = "Slightly Bullish"  # Crowd slightly bearish = cautious BUY
+            interpretation = "Slightly Bullish"
             color = "#34d399"
         elif score > -10:
-            interpretation = "Neutral"  # Crowd neutral = WAIT
+            interpretation = "Neutral"
             color = "#94a3b8"
         elif score > -40:
-            interpretation = "Slightly Bearish"  # Crowd slightly bullish = cautious SELL
+            interpretation = "Slightly Bearish"
             color = "#fb7185"
         elif score > -70:
-            interpretation = "Bearish"  # Crowd bullish = SELL
+            interpretation = "Bearish"
             color = "#f43f5e"
         else:
-            interpretation = "Extremely Bearish"  # Crowd euphoria = SELL
+            interpretation = "Extremely Bearish"
             color = "#f43f5e"
+        
+        # Determine contrarian signal
+        if long_pct >= 70:
+            signal = "SELL"
+            strength = "Strong"
+        elif long_pct >= 60:
+            signal = "SELL"
+            strength = "Weak"
+        elif long_pct <= 30:
+            signal = "BUY"
+            strength = "Strong"
+        elif long_pct <= 40:
+            signal = "BUY"
+            strength = "Weak"
+        else:
+            signal = "NEUTRAL"
+            strength = "None"
         
         current_sentiment = {
             "score": round(score, 2),
             "interpretation": interpretation,
             "color": color,
-            "longPercentage": retail_sentiment["longPercentage"],
-            "shortPercentage": retail_sentiment["shortPercentage"],
-            "source": retail_sentiment["source"],
-            "classification": retail_sentiment.get("classification", "Unknown"),
-            "crowdSentiment": round(crowd_score, 2),  # Original crowd sentiment for reference
-            "contrarian": retail_sentiment.get("contrarian", {}),
-            "components": retail_sentiment.get("components", {}),
+            "longPercentage": long_pct,
+            "shortPercentage": short_pct,
+            "source": retail_positioning["source"],
+            "contrarian": {
+                "signal": signal,
+                "strength": strength,
+                "logic": f"Retail {long_pct:.1f}% long → Contrarian {signal}"
+            }
         }
     else:
-        # Ultimate fallback: COT if nothing else works
+        # Ultimate fallback: COT if MyFxBook unavailable
         cot_snap = await get_cached(asset_id)
         if cot_snap is None:
             cot_snap = await _fetch_snapshot(asset_id)
@@ -670,11 +688,10 @@ async def get_sentiment(asset_id: str) -> Dict[str, Any]:
             "longPercentage": cot_sentiment["longPercentage"],
             "shortPercentage": cot_sentiment["shortPercentage"],
             "source": "COT Institutional (fallback)",
-            "classification": cot_sentiment["interpretation"],
             "contrarian": {
                 "signal": "NEUTRAL",
                 "strength": "None",
-                "logic": "COT is institutional data, not retail"
+                "logic": "COT is institutional data"
             }
         }
     
@@ -694,7 +711,6 @@ async def get_sentiment(asset_id: str) -> Dict[str, Any]:
             
             price_dict = await fetch_daily_closes(asset_id, start_date, end_date)
             
-            # Convert to list format
             price_history = [
                 {"date": date, "price": price}
                 for date, price in sorted(price_dict.items())
@@ -709,7 +725,7 @@ async def get_sentiment(asset_id: str) -> Dict[str, Any]:
         "history": sentiment_history,
         "priceHistory": price_history,
         "strategy": "contrarian",
-        "contrarian_note": "Trade AGAINST crowd: >70% long = SELL, <30% long = BUY"
+        "contrarian_note": "Trade AGAINST retail: >70% long = SELL, <30% long = BUY"
     }
 
 
