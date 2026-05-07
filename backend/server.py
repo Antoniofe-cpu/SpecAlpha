@@ -61,8 +61,12 @@ EMERGENT_LLM_KEY = os.environ.get("EMERGENT_LLM_KEY")
 # Direct Google Gemini API key — used for self-hosted deployments (Render/Railway/etc.).
 # When set, takes priority over EMERGENT_LLM_KEY (which only works inside Emergent).
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+# Optional secondary key. When the primary key is rate-limited (free tier 15 RPM
+# / 50 RPD) we transparently rotate to this one — effectively doubling the
+# daily AI quota at zero cost.
+GEMINI_API_KEY_2 = os.environ.get("GEMINI_API_KEY_2")
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
-# Anthropic Claude — used as automatic fallback when Gemini fails / is rate-limited.
+# Anthropic Claude — last-resort fallback when BOTH Gemini keys are exhausted.
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-5")
 
@@ -101,15 +105,15 @@ async def _claude_call(system: str, user: str) -> Optional[str]:
             return None
 
 
-async def _gemini_direct_call(system: str, user: str, max_retries: int = 0) -> Optional[str]:
+async def _gemini_direct_call(system: str, user: str, api_key: Optional[str] = None, max_retries: int = 0) -> Optional[str]:
     """Call Google Gemini API directly via google-genai SDK.
 
-    Returns the response text, or None on failure / when GEMINI_API_KEY is unset.
+    Returns the response text, or None on failure / when no API key is available.
     Serialises calls with a lock to avoid free-tier 429 rate limits.
-    On 429 we fail fast and let the caller use the fallback (we no longer cache
-    fallbacks, so the next refresh retries automatically).
+    On 429 we fail fast and let the caller decide (rotate to next key / fallback).
     """
-    if not GEMINI_API_KEY:
+    key = api_key or GEMINI_API_KEY
+    if not key:
         return None
     try:
         from google import genai  # type: ignore
@@ -119,7 +123,7 @@ async def _gemini_direct_call(system: str, user: str, max_retries: int = 0) -> O
         return None
 
     def _sync_call() -> str:
-        client_g = genai.Client(api_key=GEMINI_API_KEY)
+        client_g = genai.Client(api_key=key)
         resp = client_g.models.generate_content(
             model=GEMINI_MODEL,
             contents=user,
@@ -139,7 +143,7 @@ async def _gemini_direct_call(system: str, user: str, max_retries: int = 0) -> O
                 msg = str(e)[:200]
                 is_429 = "429" in msg or "RESOURCE_EXHAUSTED" in msg or "quota" in msg.lower()
                 if attempt >= max_retries or is_429:
-                    logger.warning("Gemini call failed: %s", msg)
+                    logger.warning("Gemini call failed (key=…%s): %s", key[-4:] if key else "?", msg)
                     return None
                 await asyncio.sleep(2)
                 attempt += 1
@@ -147,15 +151,22 @@ async def _gemini_direct_call(system: str, user: str, max_retries: int = 0) -> O
 
 
 async def _ai_text(system: str, user: str) -> Optional[str]:
-    """Unified AI call: try Gemini first, then Claude, then None.
+    """Unified AI call: rotate Gemini key #1 → Gemini key #2 → Claude → None.
 
-    This is the single entrypoint used by every AI generator in the app
-    so that any rate-limit / outage on the primary provider transparently
-    routes through the fallback.
+    Two Gemini keys = double the free-tier daily quota at zero cost. Claude
+    is kept as a last-resort fallback when both Gemini keys are exhausted.
     """
-    primary = await _gemini_direct_call(system, user)
-    if primary:
-        return primary
+    # Try primary Gemini key
+    if GEMINI_API_KEY:
+        primary = await _gemini_direct_call(system, user, api_key=GEMINI_API_KEY)
+        if primary:
+            return primary
+    # Rotate to secondary Gemini key
+    if GEMINI_API_KEY_2:
+        secondary = await _gemini_direct_call(system, user, api_key=GEMINI_API_KEY_2)
+        if secondary:
+            return secondary
+    # Final fallback: Claude
     return await _claude_call(system, user)
 
 # ---------------------------------------------------------------------------

@@ -131,6 +131,12 @@
 - P2: Email/Telegram alerts on extreme divergence
 - P2: Multi-language toggle (IT/EN)
 
+## Latest Session (Feb 2026) — Round 12 (Dual Gemini, Info popover, NZDUSD fix)
+- **Dual Gemini key rotation** in `_ai_text`: Gemini #1 → Gemini #2 → Claude → fallback. Doubles the free-tier daily quota at zero cost. Both keys stored in `backend/.env` (`GEMINI_API_KEY`, `GEMINI_API_KEY_2`).
+- **Info ⓘ popover** in OptionsPanel header: contextual reading guide with sections (What it is / Max Pain / Walls / GEX & Gamma Regime / How to use in trades / Caveats) for `full` kind, and (What / How to read / How to use / Caveats) for `skew` kind. Bilingual IT/EN. Animated entrance with `fadeInScale` keyframe.
+- **NZDUSD options removed** — the `BNZ` ETF is delisted and Yahoo doesn't carry an NZD options chain. Endpoint now returns 404 → UI shows graceful "Options chain not available".
+- **Real price coverage verified for all 17 supported assets**: indices, commodities, VIX, BTC, all major FX pairs (EUR/GBP/JPY/AUD/CAD/CHF) — all show recognisable underlying prices.
+
 ## Latest Session (Feb 2026) — Round 11 (Phantom +, AI cache stable, CME Options, Claude fallback, real prices)
 - **Phantom "+" card** inline in the asset grid (only on Core scope) → click switches scope to `all`. Replaces the previous "soft cue" pill.
 - **Permanent AI insight cache** keyed on `(kind, asset, reportDate, lang)` in new `ai_insight_cache` MongoDB collection. COT Intelligence / Macro Sentiment / Final Verdict are now generated **once per report** and reused forever; only a new COT report (different `reportDate`) triggers regeneration. Fallback strings are NEVER persisted.

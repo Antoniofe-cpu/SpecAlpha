@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
     Crosshair,
     Target as TargetIcon,
@@ -9,6 +9,8 @@ import {
     TrendingDown,
     AlertTriangle,
     RefreshCw,
+    Info,
+    X,
 } from 'lucide-react';
 import {
     BarChart,
@@ -31,6 +33,93 @@ function fmtCompact(n) {
     if (abs >= 1e6) return `${sign}${(abs / 1e6).toFixed(2)}M`;
     if (abs >= 1e3) return `${sign}${(abs / 1e3).toFixed(1)}k`;
     return `${sign}${abs.toFixed(0)}`;
+}
+
+function InfoButton({ kind, t }) {
+    const [open, setOpen] = useState(false);
+    const ref = useRef(null);
+
+    useEffect(() => {
+        if (!open) return;
+        const handleClick = (e) => {
+            if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+        };
+        document.addEventListener('mousedown', handleClick);
+        return () => document.removeEventListener('mousedown', handleClick);
+    }, [open]);
+
+    const sections = kind === 'skew'
+        ? [
+            { title: t('options.help.skew.what'), body: t('options.help.skew.what_desc') },
+            { title: t('options.help.skew.read'), body: t('options.help.skew.read_desc') },
+            { title: t('options.help.skew.use'), body: t('options.help.skew.use_desc') },
+            { title: t('options.help.skew.warn'), body: t('options.help.skew.warn_desc') },
+        ]
+        : [
+            { title: t('options.help.full.what'), body: t('options.help.full.what_desc') },
+            { title: t('options.help.full.maxpain'), body: t('options.help.full.maxpain_desc') },
+            { title: t('options.help.full.walls'), body: t('options.help.full.walls_desc') },
+            { title: t('options.help.full.gex'), body: t('options.help.full.gex_desc') },
+            { title: t('options.help.full.use'), body: t('options.help.full.use_desc') },
+            { title: t('options.help.full.warn'), body: t('options.help.full.warn_desc') },
+        ];
+
+    return (
+        <div className="relative" ref={ref}>
+            <button
+                type="button"
+                data-testid="options-info-btn"
+                onClick={() => setOpen((o) => !o)}
+                aria-label="Help"
+                className={cn(
+                    'inline-flex items-center justify-center w-7 h-7 rounded-full border transition-colors',
+                    open
+                        ? 'border-amber-400/60 bg-amber-500/15 text-amber-300'
+                        : 'border-white/10 bg-white/[0.03] text-gray-400 hover:border-amber-400/40 hover:text-amber-300'
+                )}
+            >
+                <Info size={13} />
+            </button>
+            {open && (
+                <div
+                    data-testid="options-info-popover"
+                    className="absolute z-50 left-0 mt-2 w-[420px] max-w-[88vw] origin-top-left rounded-2xl border border-amber-500/20 bg-[#0a0a0d]/98 backdrop-blur-xl shadow-2xl shadow-black/60 p-5"
+                    style={{ animation: 'fadeInScale 180ms ease-out' }}
+                >
+                    <div className="flex items-start justify-between gap-3 mb-3 pb-3 border-b border-white/[0.07]">
+                        <div>
+                            <div className="text-[10px] tracking-[0.28em] uppercase font-bold text-amber-300/80">
+                                {t('options.help.kicker')}
+                            </div>
+                            <div className="font-display text-[15px] font-semibold text-white mt-1">
+                                {kind === 'skew' ? t('options.help.skew.title') : t('options.help.full.title')}
+                            </div>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setOpen(false)}
+                            className="text-gray-500 hover:text-white transition-colors"
+                            aria-label="Close"
+                        >
+                            <X size={14} />
+                        </button>
+                    </div>
+                    <div className="space-y-3 max-h-[360px] overflow-y-auto pr-1 custom-scrollbar">
+                        {sections.map((s, i) => (
+                            <div key={i}>
+                                <div className="text-[11px] tracking-[0.18em] uppercase font-bold text-amber-300 mb-1">
+                                    {s.title}
+                                </div>
+                                <p className="text-[12.5px] text-gray-300 leading-relaxed">
+                                    {s.body}
+                                </p>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
 }
 
 function StatPill({ label, value, sub, accent = 'amber', testId }) {
@@ -355,12 +444,13 @@ export default function OptionsPanel({ data, loading, error, supported }) {
             className="bg-[#0e0e14] border border-white/[0.07] rounded-3xl p-6"
         >
             <div className="flex items-start justify-between gap-4 mb-5">
-                <div>
-                    <div className="flex items-center gap-2">
-                        <Crosshair size={16} className="text-amber-400" />
+                <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                        <Crosshair size={16} className="text-amber-400 shrink-0" />
                         <h3 className="font-display text-lg font-bold text-white">
                             {data?.kind === 'skew' ? t('options.title_skew') : t('options.title_full')}
                         </h3>
+                        {data && <InfoButton kind={data.kind} t={t} />}
                     </div>
                     <p className="text-[12px] tracking-[0.25em] uppercase text-gray-500 mt-1 font-semibold">
                         {data?.kind === 'skew' ? t('options.subtitle_skew') : t('options.subtitle_full')}

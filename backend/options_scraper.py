@@ -52,7 +52,8 @@ OPTIONS_MAP: Dict[str, Dict[str, str]] = {
     "AUDUSD":  {"symbol": "FXA",  "kind": "skew",  "label": "FXA (AUD ETF)"},
     "USDCAD":  {"symbol": "FXC",  "kind": "skew",  "label": "FXC (CAD ETF)"},
     "USDCHF":  {"symbol": "FXF",  "kind": "skew",  "label": "FXF (CHF ETF)"},
-    "NZDUSD":  {"symbol": "BNZ",  "kind": "skew",  "label": "BNZ (NZD ETF)"},
+    # NZDUSD intentionally excluded — no NZD currency ETF with a tradable
+    # options chain on Yahoo Finance (BNZ delisted; no replacement).
 }
 
 

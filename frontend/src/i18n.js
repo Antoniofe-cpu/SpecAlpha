@@ -99,6 +99,47 @@ const STR = {
             'IV simmetrica tra OTM put e call: nessun bias direzionale dai flussi options.',
         'options.skew.no_data_desc':
             'OI options troppo basso o non disponibile per calcolare un Risk Reversal affidabile.',
+
+        // Help / Info popover
+        'options.help.kicker': 'Guida alla lettura',
+        'options.help.full.title': 'Options Levels & GEX — Come usarli',
+        'options.help.full.what': 'COSA SONO',
+        'options.help.full.what_desc':
+            'Mappa settimanale del posizionamento options sull\'asset. I market maker (dealer) coprono i loro book con futures, e i loro flussi di hedging influenzano dove e come si muove il prezzo. Questi numeri ti dicono dove sono i livelli "magnetici" della settimana e in che regime di volatilità sei.',
+        'options.help.full.maxpain': 'MAX PAIN',
+        'options.help.full.maxpain_desc':
+            'Lo strike a cui il maggior numero di opzioni scadono inutili (maxima perdita per chi le ha comprate). Spesso il prezzo "viene tirato" verso il Max Pain a ridosso della scadenza. Δ% indica quanto è lontano dallo spot.',
+        'options.help.full.walls': 'CALL WALL & PUT WALL',
+        'options.help.full.walls_desc':
+            'Strike con la massima Open Interest di call (resistenza) e put (supporto). Il prezzo tende a rimbalzare contro questi muri perché i dealer vendono futures vicino alla Call Wall e ne comprano vicino alla Put Wall, contenendo i movimenti.',
+        'options.help.full.gex': 'GEX & GAMMA REGIME',
+        'options.help.full.gex_desc':
+            'Net GEX positivo (verde, "Long Gamma") = dealer comprano in calo e vendono in salita → vol bassa, range, mean-reversion verso il Max Pain. Net GEX negativo (rosso, "Short Gamma") = dealer fanno l\'opposto, AMPLIFICANDO i movimenti → breakout, vol esplosiva. Il "Gamma Flip" è lo strike a cui il regime cambia.',
+        'options.help.full.use': 'COME USARLI NEI TRADE',
+        'options.help.full.use_desc':
+            '• LONG GAMMA: trada il range tra Put Wall e Call Wall, mira al Max Pain, taglia stop oltre i muri. ' +
+            '• SHORT GAMMA: cerca breakout dei muri, lascia correre i trend, evita di fare "fading" delle estensioni. ' +
+            '• Combina con il segnale COT: se LONG-TERM è bullish + Long Gamma → setup di compressione che spesso esplode al rilascio (post-CPI/FOMC).',
+        'options.help.full.warn': 'ATTENZIONE',
+        'options.help.full.warn_desc':
+            'I dati derivano dall\'ETF proxy (SPY/QQQ/GLD/etc.) — gli strike sono auto-convertiti al valore del futures sottostante. Vicino alle scadenze (≤1 DTE) il GEX si comprime velocemente: i livelli sono più affidabili a 3-7 giorni dalla scadenza.',
+        'options.help.skew.title': 'Volatility Skew — Come usarlo',
+        'options.help.skew.what': 'COSA È',
+        'options.help.skew.what_desc':
+            'Misura quanto il mercato options paga in più per protezione vs upside. Il Risk Reversal (RR) confronta la volatilità implicita di una call OTM (~7% sopra) con quella di una put OTM (~7% sotto). Differenza in punti vol = lo "skew".',
+        'options.help.skew.read': 'COME LEGGERLO',
+        'options.help.skew.read_desc':
+            'RR > 0 (Bullish Skew): le call costano più delle put → trader pagano per esposizione al rialzo. ' +
+            'RR < 0 (Bearish Skew / Fear Premium): le put costano più delle call → tutti vogliono protezione, tipico nei top di mercato. ' +
+            'RR ≈ 0: posizionamento simmetrico, nessun bias.',
+        'options.help.skew.use': 'COME USARLO NEI TRADE',
+        'options.help.skew.use_desc':
+            '• Bullish Skew + COT bullish → conferma forte, trend long affidabile. ' +
+            '• Bearish Skew nonostante prezzo che sale → "rally fragile", possibile trappola: prendi profitto presto. ' +
+            '• Estremi (RR > +5 o < -5) sono spesso punti di esaurimento: il mercato è sbilanciato e tende a invertirsi.',
+        'options.help.skew.warn': 'ATTENZIONE',
+        'options.help.skew.warn_desc':
+            'Lo skew si calcola sull\'ETF proxy (FXE, FXB, ecc.) e su scadenze ≤2 settimane. È un segnale CONTESTUALE: non operare mai SOLO sullo skew, sempre incrociato con segnale COT, divergenza Net WoW e prezzo.',
         'app.footer.title': 'Data Source · Tradingster (CFTC Legacy Futures)',
         'app.footer.body':
             'Tutti i dati sono estratti dai report ufficiali CFTC Commitment of Traders. Aggiornamento automatico ogni sabato.',
@@ -375,6 +416,47 @@ const STR = {
             'IV symmetric between OTM puts and calls: no directional bias from options flows.',
         'options.skew.no_data_desc':
             'Options OI too thin or unavailable to compute a reliable Risk Reversal.',
+
+        // Help / Info popover
+        'options.help.kicker': 'Reading guide',
+        'options.help.full.title': 'Options Levels & GEX — How to use',
+        'options.help.full.what': 'WHAT IT IS',
+        'options.help.full.what_desc':
+            'A weekly map of options positioning on the asset. Market makers (dealers) hedge their books with futures, and their hedging flows shape WHERE and HOW the price moves. These numbers tell you the "magnet" levels of the week and the volatility regime you\'re in.',
+        'options.help.full.maxpain': 'MAX PAIN',
+        'options.help.full.maxpain_desc':
+            'The strike at which the largest number of options expire worthless (max pain for buyers). Price often gravitates toward Max Pain into expiry. Δ% shows distance from spot.',
+        'options.help.full.walls': 'CALL WALL & PUT WALL',
+        'options.help.full.walls_desc':
+            'Strikes with the largest Open Interest in calls (resistance) and puts (support). Price tends to bounce off these walls because dealers SELL futures near the Call Wall and BUY near the Put Wall, capping the move.',
+        'options.help.full.gex': 'GEX & GAMMA REGIME',
+        'options.help.full.gex_desc':
+            'Positive Net GEX (green, "Long Gamma") = dealers buy on dips and sell on rallies → low vol, range, mean-reversion toward Max Pain. Negative Net GEX (red, "Short Gamma") = dealers do the opposite, AMPLIFYING moves → breakouts, vol expansion. The "Gamma Flip" is the strike where the regime changes sign.',
+        'options.help.full.use': 'HOW TO USE IN TRADES',
+        'options.help.full.use_desc':
+            '• LONG GAMMA: trade the range between Put Wall and Call Wall, target Max Pain, stops just beyond the walls. ' +
+            '• SHORT GAMMA: hunt breakouts of the walls, let trends run, avoid fading extensions. ' +
+            '• Pair with COT: if LONG-TERM is bullish + Long Gamma → coiled-spring setup that often explodes on the release (CPI/FOMC).',
+        'options.help.full.warn': 'CAVEATS',
+        'options.help.full.warn_desc':
+            'Data is sourced from the ETF proxy (SPY/QQQ/GLD/etc.) — strikes are auto-translated to the futures-equivalent value. Near expiry (≤1 DTE) GEX collapses quickly: levels are most reliable 3–7 days out.',
+        'options.help.skew.title': 'Volatility Skew — How to use',
+        'options.help.skew.what': 'WHAT IT IS',
+        'options.help.skew.what_desc':
+            'Measures how much more the options market pays for protection vs upside. Risk Reversal (RR) compares the implied vol of an OTM call (~7% above) with an OTM put (~7% below). Difference in vol points = the skew.',
+        'options.help.skew.read': 'HOW TO READ',
+        'options.help.skew.read_desc':
+            'RR > 0 (Bullish Skew): calls cost more than puts → traders pay up for upside. ' +
+            'RR < 0 (Bearish Skew / Fear Premium): puts cost more → everyone wants protection, typical at market tops. ' +
+            'RR ≈ 0: symmetric positioning, no bias.',
+        'options.help.skew.use': 'HOW TO USE IN TRADES',
+        'options.help.skew.use_desc':
+            '• Bullish Skew + bullish COT → strong confirmation, reliable long trend. ' +
+            '• Bearish Skew while price rises → "fragile rally", possible trap: take profit early. ' +
+            '• Extremes (RR > +5 or < −5) are often exhaustion points: market is one-sided and tends to revert.',
+        'options.help.skew.warn': 'CAVEATS',
+        'options.help.skew.warn_desc':
+            'Skew is computed on the ETF proxy (FXE, FXB, etc.) and on expiries ≤2 weeks. Use it as CONTEXT: never trade off skew alone — always cross-check with COT signal, Net WoW divergence and price action.',
         'app.footer.title': 'Data Source · Tradingster (CFTC Legacy Futures)',
         'app.footer.body':
             'All data is sourced from official CFTC Commitment of Traders reports. Auto-updated every Saturday.',
