@@ -395,7 +395,7 @@ async def _fetch_snapshot(asset_id: str, force: bool = False, lang: str = "it") 
     cached_macro = None
     if report_date:
         cached = await get_ai_insight("macro", asset_id, report_date, lang)
-        if cached and isinstance(cached.get("text"), str) and not cached.get("fallback"):
+        if cached and isinstance(cached.get("text"), str):
             cached_macro = cached["text"]
 
     if cached_macro:
@@ -404,11 +404,12 @@ async def _fetch_snapshot(asset_id: str, force: bool = False, lang: str = "it") 
     else:
         macro_text, used_fallback = await generate_macro_insight(asset_id, snapshot, lang=lang)
         snapshot["macro"] = macro_text
-        # Persist only real AI-generated insights (not the deterministic fallback)
-        if report_date and not used_fallback:
+        # Persist ALWAYS (even fallback text is better than re-generating on every request)
+        # Real AI insights have fallback=False, deterministic fallbacks have fallback=True
+        if report_date:
             await set_ai_insight("macro", asset_id, report_date, lang, {
                 "text": macro_text,
-                "fallback": False,
+                "fallback": used_fallback,
             })
 
     snapshot["fetchedAt"] = _now().isoformat()
@@ -719,8 +720,8 @@ async def macro_sentiment(asset_id: str, refresh: bool = Query(False), lang: str
     await db[MACRO_COLL].update_one(
         {"_id": cache_key}, {"$set": {"data": data, "fetchedAt": _now().isoformat()}}, upsert=True,
     )
-    # Persist permanently per (asset, reportDate, lang) only when AI succeeded
-    if is_real_ai and report_date:
+    # Persist permanently per (asset, reportDate, lang) ALWAYS (even fallback)
+    if report_date:
         await set_ai_insight("macro_sent", asset_id, report_date, lang, data)
     return data
 
@@ -902,8 +903,8 @@ async def final_verdict(asset_id: str, refresh: bool = Query(False), lang: str =
     )
     # Append to immutable verdict history for later P/L tracking
     await db[VERDICT_HISTORY_COLL].insert_one({**data, "savedAt": _now().isoformat()})
-    # Persist permanently per (asset, reportDate, lang) only when AI succeeded
-    if is_real_ai and report_date:
+    # Persist permanently per (asset, reportDate, lang) ALWAYS (even fallback)
+    if report_date:
         await set_ai_insight("verdict", asset_id, report_date, lang, data)
     return data
 
