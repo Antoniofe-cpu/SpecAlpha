@@ -46,6 +46,7 @@ from price_scraper import (
 )
 from options_scraper import get_options_analytics, OPTIONS_MAP
 from sentiment_calculator import calculate_sentiment_from_cot, calculate_sentiment_history
+from ig_sentiment_scraper import fetch_ig_sentiment, fetch_ig_price_history
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -579,13 +580,13 @@ async def _options_with_underlying(asset_id: str) -> Optional[Dict[str, Any]]:
 
 
 # ---------------------------------------------------------------------------
-# Sentiment Calculator (COT-based)
+# Sentiment Calculator (COT + IG Markets)
 # ---------------------------------------------------------------------------
 @api.get("/sentiment/{asset_id}")
 async def get_sentiment(asset_id: str) -> Dict[str, Any]:
-    """Calculate market sentiment from COT positioning data.
+    """Calculate market sentiment from COT positioning + IG Markets client sentiment.
     
-    Returns sentiment score (-100 to +100), interpretation, color, and historical trend.
+    Returns sentiment score, interpretation, historical trend, and price history.
     """
     asset_id = asset_id.upper()
     if asset_id not in ASSET_MAP:
@@ -596,20 +597,34 @@ async def get_sentiment(asset_id: str) -> Dict[str, Any]:
     if cot_snap is None:
         cot_snap = await _fetch_snapshot(asset_id)
     
-    # Calculate current sentiment
+    # Calculate current sentiment from COT
     sentiment = calculate_sentiment_from_cot(cot_snap)
+    
+    # Try to get IG Markets sentiment (overwrites long/short percentages if available)
+    ig_sentiment = await fetch_ig_sentiment(asset_id)
+    if ig_sentiment:
+        sentiment["longPercentage"] = ig_sentiment["longPercentage"]
+        sentiment["shortPercentage"] = ig_sentiment["shortPercentage"]
+        sentiment["source"] = "IG Markets"
+    else:
+        sentiment["source"] = "COT Calculated"
     
     # Get historical data for sentiment trend
     history = await cot_history(asset_id, limit=12)
     sentiment_history = calculate_sentiment_history(history)
+    
+    # Get price history from IG Markets (90 days)
+    price_history = await fetch_ig_price_history(asset_id, days=90)
     
     return {
         "assetId": asset_id,
         "assetName": ASSET_MAP[asset_id]["name"],
         "current": sentiment,
         "history": sentiment_history,
+        "priceHistory": price_history,
         "reportDate": cot_snap.get("reportDate"),
     }
+
 
 
 # ---------------------------------------------------------------------------
