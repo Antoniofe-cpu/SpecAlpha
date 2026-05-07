@@ -166,3 +166,27 @@
   - Bulk fetch concurrency reduced (Semaphore 4 → 2) since AI is serialised anyway.
   - Stale fallback caches purged.
   - **User action required**: top up Emergent Universal Key OR upgrade Gemini API key to paid tier — otherwise the macro insight will continue to fall back to the deterministic template.
+
+
+## Latest Session (Feb 2026) — Round 12 (MyFxBook auth fix + contrarian-aligned sentiment score)
+- **MyFxBook authentication fixed** (was failing with `Invalid Session` on every call after successful login):
+  - Root cause: MyFxBook returns a URL-encoded session token (e.g. `…%2B…%3D%3D`); httpx `params=` re-encoded it, breaking the next call.
+  - Fix in `/app/backend/myfxbook_scraper.py`: `unquote(session_id)` before caching it.
+  - Switched login to GET (matches MyFxBook docs) and updated credentials in `/app/backend/.env` (`affittosmartbologna@gmail.com`).
+  - Now fetches 186 symbols from `/api/get-community-outlook.json`, mapped to EURUSD/GBPUSD/USDJPY/AUDUSD/USDCAD/USDCHF/NZDUSD/GOLD/SILVER/OIL/BTC.
+- **Sentiment score inverted to reflect contrarian action signal** (per user choice 2b — "Bullish/Bearish in linea con la logica contrarian"):
+  - New formula in `/api/sentiment/{asset_id}`: `score = (50 - long_pct) * 2`.
+  - 75% long retail → score −50 → "Bearish" interpretation → contrarian SELL.
+  - 25% long retail → score +50 → "Bullish" interpretation → contrarian BUY.
+  - Added `crowdLabel` field (`Bullish Crowd` / `Bearish Crowd` / `Mixed Crowd`) so the raw retail positioning is still visible separately.
+- **SentimentGauge UI updated** (`/app/frontend/src/components/SentimentGauge.jsx`):
+  - "Sentiment Score" label renamed to "Contrarian Score".
+  - New `data-testid="contrarian-signal-badge"` showing BUY/SELL/NEUTRAL with strength.
+  - New `data-testid="crowd-label-badge"` showing the raw crowd state.
+  - Dual-line chart now uses Yahoo daily price as the continuous x-axis backbone with weekly COT sentiment forward-filled and rendered as a step-after line (fixes sparse-points issue).
+  - X-axis uses `interval="preserveStartEnd"` + `minTickGap=40` to prevent overlapping date labels.
+  - Info panel source corrected to "MyFxBook Community Outlook (account live verificati)".
+- **Cleanup**: deleted deprecated `ig_sentiment_scraper.py` and `retail_sentiment_scraper.py`.
+- **Code review fix**: replaced bare `except:` in `/api/sentiment/{asset_id}` history block with `except Exception as e: logger.warning(...)`.
+- **Tests**: `/app/backend/tests/test_sentiment_api.py` — 21 tests, all passing (sentiment formula, crowdLabel, contrarian signal, priceHistory, regression on options/COT/verdict).
+- **Status**: AI text generation still falls back to templates because Gemini free tier is exhausted; this is expected and not a bug.

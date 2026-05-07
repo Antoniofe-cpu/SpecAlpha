@@ -42,7 +42,7 @@ export default function SentimentGauge({ data, loading, error }) {
     const gaugePercent = ((score + 100) / 200) * 100;
     const Icon = score > 10 ? TrendingUp : score < -10 ? TrendingDown : Activity;
 
-    // Prepare chart data - CRITICAL: Ensure sentiment data is properly mapped
+    // Prepare chart data — keep price as full daily series, overlay weekly sentiment on same x-domain
     const sentimentMap = new Map();
     if (history && Array.isArray(history)) {
         history.forEach(h => {
@@ -52,25 +52,36 @@ export default function SentimentGauge({ data, loading, error }) {
         });
     }
 
-    const priceMap = new Map();
-    if (priceHistory && Array.isArray(priceHistory)) {
-        priceHistory.forEach(p => {
-            if (p.date && p.price !== undefined) {
-                priceMap.set(p.date, p.price);
-            }
+    // Build chart data from priceHistory (continuous daily series) and overlay sentiment when available
+    const sortedPrices = (priceHistory && Array.isArray(priceHistory))
+        ? [...priceHistory].sort((a, b) => a.date.localeCompare(b.date))
+        : [];
+
+    let displayData = sortedPrices.map(p => ({
+        date: p.date,
+        price: p.price,
+        sentiment: sentimentMap.has(p.date) ? sentimentMap.get(p.date) : undefined,
+    }));
+
+    // Forward-fill sentiment so weekly COT data renders as a step line across daily x-domain
+    if (displayData.length > 0 && sentimentMap.size > 0) {
+        const sortedSentDates = Array.from(sentimentMap.keys()).sort();
+        let lastScore = undefined;
+        displayData = displayData.map(d => {
+            const matched = sortedSentDates.filter(sd => sd <= d.date).pop();
+            if (matched) lastScore = sentimentMap.get(matched);
+            return { ...d, sentiment: lastScore };
         });
     }
 
-    // Merge by date - keep ALL dates from both sources
-    const allDates = new Set([...sentimentMap.keys(), ...priceMap.keys()]);
-    const chartData = Array.from(allDates).sort().map(date => ({
-        date,
-        sentiment: sentimentMap.has(date) ? sentimentMap.get(date) : undefined,
-        price: priceMap.has(date) ? priceMap.get(date) : undefined,
-    }));
-
-    // Take all available data (not just last 12)
-    const displayData = chartData.length > 12 ? chartData.slice(-50) : chartData;
+    // If no priceHistory but sentiment exists, fall back to sentiment-only chart
+    if (displayData.length === 0 && sentimentMap.size > 0) {
+        displayData = Array.from(sentimentMap.keys()).sort().map(date => ({
+            date,
+            sentiment: sentimentMap.get(date),
+            price: undefined,
+        }));
+    }
 
     // Calculate price domain
     const prices = displayData.map(d => d.price).filter(p => p !== undefined && p !== null);
@@ -304,6 +315,8 @@ export default function SentimentGauge({ data, loading, error }) {
                                     stroke="#6b7280"
                                     fontSize={10}
                                     tick={{ fontFamily: 'Geist Mono', fill: '#9ca3af' }}
+                                    interval="preserveStartEnd"
+                                    minTickGap={40}
                                     tickFormatter={(val) => {
                                         const parts = val.split('-');
                                         return parts.length >= 2 ? `${parts[1]}/${parts[2]}` : val;
@@ -372,14 +385,14 @@ export default function SentimentGauge({ data, loading, error }) {
                                     labelStyle={{ color: '#e5e7eb', marginBottom: '8px', fontWeight: 'bold', fontSize: '12px' }}
                                 />
                                 
-                                {/* Sentiment Line - ALWAYS render if data exists */}
+                                {/* Sentiment Line - step-after for weekly COT data overlaid on daily x-axis */}
                                 {sentiments.length > 0 && (
                                     <Line 
                                         yAxisId="sentiment"
-                                        type="monotone" 
+                                        type="stepAfter" 
                                         dataKey="sentiment" 
                                         stroke="#a78bfa"
-                                        strokeWidth={3}
+                                        strokeWidth={2.5}
                                         dot={false}
                                         activeDot={{ r: 6, fill: '#a78bfa', stroke: '#0e0e14', strokeWidth: 2 }}
                                         connectNulls

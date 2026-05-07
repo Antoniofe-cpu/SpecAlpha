@@ -708,7 +708,8 @@ async def get_sentiment(asset_id: str) -> Dict[str, Any]:
     try:
         history = await cot_history(asset_id, limit=12)
         sentiment_history = calculate_sentiment_history(history)
-    except:
+    except Exception as e:
+        logger.warning(f"Failed to fetch sentiment history for {asset_id}: {e}")
         sentiment_history = []
     
     # Get price history from Yahoo Finance (90 days)
