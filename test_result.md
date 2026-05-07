@@ -101,3 +101,166 @@
 #====================================================================================================
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
+
+
+user_problem_statement: |
+  Verifica i seguenti endpoint del backend Speculative Alpha (FastAPI a localhost:8001) dopo modifiche significative.
+  Test endpoints: verdict, verdict/performance, cot/refresh, cron/warm, health, assets, cot/{asset}
+
+backend:
+  - task: "GET /api/health endpoint"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "Endpoint returns status='ok' with timestamp. All fields present and valid."
+
+  - task: "GET /api/assets endpoint"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "Returns 18 assets with unique assetIds. All required fields (assetId, name, type, core) present."
+
+  - task: "GET /api/cot/{asset_id} endpoint"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "Tested with SP500. Returns all required fields: netPosition, wowDelta, long, short, reportDate. Data is valid."
+
+  - task: "GET /api/verdict/{asset_id} endpoint"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "Tested with SP500, NAS100, GOLD, EURUSD. All return valid verdict (LONG/SHORT/WAIT), confidence (1-5), and non-empty summary. GEMINI_API_KEY is working - 3 out of 4 assets returned proper LLM-generated summaries. NAS100 showed 'Dati insufficienti' fallback due to rate limiting (429 error - free tier limit of 5 requests/minute). This is expected behavior, not a bug."
+
+  - task: "GET /api/verdict/{asset_id}/performance endpoint (Signal Accuracy)"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "Tested with SP500, NAS100, GOLD, BTC. All return correct structure with modes.LTS.window12w, modes.LTS.window24w, modes.ST.window12w, modes.ST.window24w. Each window contains: total, respected, notRespected, skipped, accuracy, avgFavorableRangePct, avgAdverseRangePct, highConfAccuracy. Accuracy values are within 0-100 range. History array contains all required fields: reportDate, weekStart, weekEnd, weekLow, weekHigh, weekRangePct, signalLTS, signalST, confidence, respectedLTS, respectedST."
+
+  - task: "POST /api/cot/refresh endpoint"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "Returns status='cache cleared' without errors. Verified via MongoDB that cot_history_cache collection is preserved (7 documents with 200 entries each). Only clears cot_cache, macro_cache, verdict_cache, and calendar_cache as intended."
+
+  - task: "GET /api/cron/warm endpoint"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "Returns status='warm started' immediately (async). Response is instant as expected."
+
+  - task: "POST /api/cron/warm endpoint"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "Returns status='warm started' immediately (async). Response is instant as expected."
+
+frontend:
+  - task: "Frontend testing"
+    implemented: false
+    working: "NA"
+    file: ""
+    stuck_count: 0
+    priority: "low"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "testing"
+        comment: "Frontend testing not requested. Backend-only testing as per review request."
+
+metadata:
+  created_by: "testing_agent"
+  version: "1.0"
+  test_sequence: 1
+  run_ui: false
+
+test_plan:
+  current_focus:
+    - "All backend endpoints tested and verified"
+  stuck_tasks: []
+  test_all: false
+  test_priority: "high_first"
+
+agent_communication:
+  - agent: "testing"
+    message: |
+      Backend testing completed successfully. All 8 endpoint groups tested:
+      
+      ✅ PASSED (14 tests total):
+      1. GET /api/health - Working correctly
+      2. GET /api/assets - Returns 18 assets with unique IDs
+      3. GET /api/cot/SP500 - Returns valid COT data
+      4. GET /api/verdict/SP500 - Working with LLM-generated summary
+      5. GET /api/verdict/NAS100 - Working (fallback due to rate limit)
+      6. GET /api/verdict/GOLD - Working with LLM-generated summary
+      7. GET /api/verdict/EURUSD - Working with LLM-generated summary
+      8. GET /api/verdict/SP500/performance - All fields valid, accuracy in range
+      9. GET /api/verdict/NAS100/performance - All fields valid, accuracy in range
+      10. GET /api/verdict/GOLD/performance - All fields valid, accuracy in range
+      11. GET /api/verdict/BTC/performance - All fields valid, accuracy in range
+      12. POST /api/cot/refresh - Cache cleared, history preserved
+      13. GET /api/cron/warm - Async warm started
+      14. POST /api/cron/warm - Async warm started
+      
+      ⚠️ MINOR OBSERVATIONS (not bugs):
+      - NAS100 verdict showed "Dati insufficienti" fallback due to Gemini API rate limiting (429 error)
+      - This is expected behavior on free tier (5 requests/minute limit)
+      - GEMINI_API_KEY is working correctly (verified by successful responses on SP500, GOLD, EURUSD)
+      - Backend logs show successful Gemini API calls with 200 OK responses
+      
+      🔍 VERIFIED:
+      - cot_history_cache collection preserved after POST /api/cot/refresh (7 documents, 200 entries each)
+      - All accuracy values are within 0-100 range
+      - All verdict responses have valid structure (verdict: LONG/SHORT/WAIT, confidence: 1-5, non-empty summary)
+      - Performance endpoint returns complete structure with LTS/ST modes and 12w/24w windows
+      
+      NO CRITICAL ISSUES FOUND. All endpoints working as expected.

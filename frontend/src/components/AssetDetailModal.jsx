@@ -67,6 +67,7 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
     const [showPerformance, setShowPerformance] = useState(false);
     const [performance, setPerformance] = useState(null);
     const [performanceLoading, setPerformanceLoading] = useState(false);
+    const [perfMode, setPerfMode] = useState('LTS'); // 'LTS' | 'ST'
 
     const toggleSeries = (k) =>
         setVisible((v) => {
@@ -330,8 +331,8 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
             pdf.setFont('helvetica', 'normal');
             pdf.setFontSize(8);
             pdf.text(`${t('modal.confidence')} ${verdict?.confidence ?? '—'}/5`, M + 36, y + 18);
-            if (verdict?.entryPrice) {
-                pdf.text(`${t('modal.entry')} ${verdict.entryPrice}`, M + 60, y + 18);
+            if (verdict?.entryReportDate) {
+                pdf.text(`${t('modal.report_label')} ${verdict.entryReportDate}`, M + 60, y + 18);
             }
             setText(TEXT);
             pdf.setFont('helvetica', 'italic');
@@ -462,7 +463,7 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                 y += dh + 8;
             }
 
-            // ---------- Performance R Panel ----------
+            // ---------- Signal Accuracy Panel ----------
             ensurePage(95);
             setText(TEXT);
             pdf.setFont('helvetica', 'bold');
@@ -472,95 +473,101 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
             setText(MUTED);
             pdf.setFont('helvetica', 'normal');
             pdf.setFontSize(7.5);
-            const logicLines = pdf.splitTextToSize(t('modal.perf_logic_r'), W - M * 2);
+            const logicLines = pdf.splitTextToSize(t('modal.perf_logic'), W - M * 2);
             pdf.text(logicLines, M, y);
             y += logicLines.length * 3.2 + 2;
             setText([200, 160, 60]);
             pdf.setFont('helvetica', 'italic');
             pdf.setFontSize(7);
-            const noteLines = pdf.splitTextToSize(t('modal.perf_synth_note_r'), W - M * 2);
+            const noteLines = pdf.splitTextToSize(t('modal.perf_synth_note'), W - M * 2);
             pdf.text(noteLines, M, y);
             y += noteLines.length * 3 + 4;
 
-            if (perf) {
-                // Stats strip (Net Excursion % primary, R secondary)
-                const stats = [
-                    [t('pdf.stats.total'), perf.totalVerdicts ?? 0, TEXT],
-                    [t('pdf.stats.evaluated'), perf.evaluated ?? 0, TEXT],
-                    [t('pdf.stats.wins'), perf.wins ?? 0, GREEN],
-                    [t('pdf.stats.losses'), perf.losses ?? 0, RED],
-                    [t('pdf.stats.winrate'), perf.winRate != null ? `${perf.winRate}%` : '—', AMBER],
-                    [
-                        t('pdf.stats.cum_net_pct'),
-                        perf.cumulativeNetPct != null ? `${formatSigned(perf.cumulativeNetPct)}%` : '—',
-                        (perf.cumulativeNetPct ?? 0) > 0 ? GREEN : (perf.cumulativeNetPct ?? 0) < 0 ? RED : TEXT,
-                    ],
-                    [
-                        t('pdf.stats.cum_r'),
-                        perf.cumulativeR != null ? `${formatSigned(perf.cumulativeR)}R` : '—',
-                        (perf.cumulativeR ?? 0) > 0 ? GREEN : (perf.cumulativeR ?? 0) < 0 ? RED : TEXT,
-                    ],
+            if (perf && perf.modes) {
+                // Render two blocks: LTS and ST, each with two windows (52w + all-time)
+                const modesToRender = [
+                    { key: 'LTS', label: t('modal.perf.mode_lts') },
+                    { key: 'ST', label: t('modal.perf.mode_st') },
                 ];
-                const sw = (W - M * 2 - 4 * (stats.length - 1)) / stats.length;
-                stats.forEach(([label, val, color], i) => {
-                    const sx = M + i * (sw + 4);
-                    panel(sx, y, sw, 18);
-                    setText(MUTED);
-                    pdf.setFont('helvetica', 'bold');
-                    pdf.setFontSize(6);
-                    pdf.text(String(label).toUpperCase(), sx + 3, y + 5);
-                    setText(color);
-                    pdf.setFont('helvetica', 'bold');
-                    pdf.setFontSize(11);
-                    pdf.text(String(val), sx + 3, y + 14);
-                });
-                y += 22;
+                const windowsToRender = [
+                    { key: 'window52w', label: t('modal.perf.window_52w') },
+                    { key: 'allTime', label: t('modal.perf.window_all') },
+                ];
 
-                // Equity curve (cumulative Net Excursion %) — vector, native PDF
-                const evaluated = (perf.history || [])
-                    .slice()
-                    .reverse()
-                    .filter((r) => r.netPct !== null && r.netPct !== undefined);
-                if (evaluated.length > 1) {
-                    let cum = 0;
-                    const series = evaluated.map((r) => {
-                        cum += r.netPct;
-                        return cum;
-                    });
-                    const cw = W - M * 2;
-                    const ch = 36;
-                    panel(M, y, cw, ch);
-                    setText(MUTED);
+                for (const mode of modesToRender) {
+                    ensurePage(45);
+                    setText(AMBER);
                     pdf.setFont('helvetica', 'bold');
-                    pdf.setFontSize(7);
-                    pdf.text(t('modal.perf.equity_label_pct', series.length).toUpperCase(), M + 4, y + 5);
-                    setText(cum > 0 ? GREEN : cum < 0 ? RED : MUTED);
-                    pdf.setFont('helvetica', 'bold');
-                    pdf.setFontSize(10);
-                    pdf.text(`${formatSigned(cum.toFixed(2))}%`, M + cw - 4, y + 5, { align: 'right' });
+                    pdf.setFontSize(9);
+                    pdf.text(mode.label, M, y);
+                    y += 4;
 
-                    const minV = Math.min(0, ...series);
-                    const maxV = Math.max(0, ...series);
-                    const range = Math.max(0.01, maxV - minV);
-                    const px = (i) => M + 4 + (i / (series.length - 1)) * (cw - 8);
-                    const py = (v) => y + ch - 4 - ((v - minV) / range) * (ch - 12);
-                    setDraw(BORDER);
-                    pdf.setLineWidth(0.15);
-                    pdf.line(M + 4, py(0), M + cw - 4, py(0));
-                    setDraw(AMBER);
-                    pdf.setLineWidth(0.6);
-                    for (let i = 1; i < series.length; i++) {
-                        pdf.line(px(i - 1), py(series[i - 1]), px(i), py(series[i]));
+                    const cardW = (W - M * 2 - 4) / 2;
+                    const cardH = 32;
+                    for (let i = 0; i < windowsToRender.length; i++) {
+                        const win = windowsToRender[i];
+                        const m = perf.modes[mode.key]?.[win.key];
+                        const cx = M + i * (cardW + 4);
+                        panel(cx, y, cardW, cardH);
+                        setText(MUTED);
+                        pdf.setFont('helvetica', 'bold');
+                        pdf.setFontSize(6.5);
+                        pdf.text(win.label.toUpperCase(), cx + 3, y + 4);
+
+                        if (!m || m.total === 0) {
+                            setText(MUTED);
+                            pdf.setFont('helvetica', 'italic');
+                            pdf.setFontSize(8);
+                            pdf.text(t('modal.perf.no_signals'), cx + 3, y + 14);
+                            continue;
+                        }
+
+                        const acc = m.accuracy ?? 0;
+                        const accColor = acc >= 55 ? GREEN : acc >= 50 ? AMBER : RED;
+                        setText(accColor);
+                        pdf.setFont('helvetica', 'bold');
+                        pdf.setFontSize(18);
+                        pdf.text(`${acc}%`, cx + 3, y + 14);
+                        setText(MUTED);
+                        pdf.setFont('helvetica', 'normal');
+                        pdf.setFontSize(7);
+                        pdf.text(t('modal.perf.accuracy'), cx + 3, y + 18);
+
+                        // Stats on the right side of card
+                        setText(TEXT);
+                        pdf.setFont('helvetica', 'normal');
+                        pdf.setFontSize(7);
+                        const statsX = cx + cardW / 2 + 2;
+                        pdf.text(`${t('modal.perf.respected')}: ${m.respected}`, statsX, y + 8);
+                        pdf.text(`${t('modal.perf.not_respected')}: ${m.notRespected}`, statsX, y + 12);
+                        pdf.text(`${t('modal.perf.skipped')}: ${m.skipped}`, statsX, y + 16);
+                        if (m.avgFavorableRangePct != null) {
+                            setText(GREEN);
+                            pdf.text(`Fav: +${m.avgFavorableRangePct}%`, statsX, y + 22);
+                        }
+                        if (m.avgAdverseRangePct != null) {
+                            setText(RED);
+                            pdf.text(`Adv: ${m.avgAdverseRangePct}%`, statsX, y + 26);
+                        }
+                        if (m.highConfAccuracy && m.highConfAccuracy.total > 0) {
+                            setText(MUTED);
+                            pdf.setFontSize(6.5);
+                            pdf.text(
+                                `Conf>=4: ${m.highConfAccuracy.accuracy}% (${m.highConfAccuracy.respected}/${m.highConfAccuracy.total})`,
+                                cx + 3,
+                                y + 28
+                            );
+                        }
                     }
-                    y += ch + 6;
+                    y += cardH + 5;
                 }
 
-                // Last 10 verdicts table (Net % + R)
+                // History table
                 ensurePage(60);
                 setText(MUTED);
                 pdf.setFont('helvetica', 'bold');
                 pdf.setFontSize(7);
-                pdf.text(t('modal.perf.last_n', Math.min(10, perf.history?.length || 0)).toUpperCase(), M, y);
+                pdf.text(t('modal.perf.history_title').toUpperCase(), M, y);
                 y += 2;
                 autoTable(pdf, {
                     startY: y + 1,
@@ -583,47 +590,24 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                     alternateRowStyles: { fillColor: [16, 16, 22] },
                     head: [[
                         t('modal.perf.col.report'),
-                        t('modal.perf.col.verdict'),
-                        t('modal.perf.col.entry_price'),
-                        t('modal.perf.col.exit_price'),
-                        t('modal.perf.col.week_min'),
-                        t('modal.perf.col.week_max'),
-                        t('modal.perf.col.net_pct'),
-                        t('modal.perf.col.r'),
-                        t('modal.perf.col.outcome'),
+                        t('modal.perf.col.conf'),
+                        t('modal.perf.col.range'),
+                        t('modal.perf.col.respected_lts'),
+                        t('modal.perf.col.respected_st'),
                     ]],
-                    body: (perf.history || []).slice(0, 10).map((r) => [
-                        r.verdictDate || '—',
-                        r.verdict || '—',
-                        r.entryPrice != null ? Number(r.entryPrice).toFixed(4) : '—',
-                        r.exitPrice != null ? Number(r.exitPrice).toFixed(4) : '—',
-                        r.weekMin != null ? Number(r.weekMin).toFixed(4) : '—',
-                        r.weekMax != null ? Number(r.weekMax).toFixed(4) : '—',
-                        r.netPct != null ? `${formatSigned(r.netPct.toFixed(2))}%` : '—',
-                        r.r != null ? `${formatSigned(r.r)}R` : '—',
-                        r.outcome || '—',
+                    body: (perf.history || []).slice(0, 15).map((r) => [
+                        r.reportDate || '—',
+                        r.confidence != null ? String(r.confidence) : '—',
+                        r.weekRangePct != null ? `${r.weekRangePct.toFixed(2)}%` : '—',
+                        r.respectedLTS === true ? 'YES' : r.respectedLTS === false ? 'NO' : '—',
+                        r.respectedST === true ? 'YES' : r.respectedST === false ? 'NO' : '—',
                     ]),
                     didParseCell: (data) => {
                         if (data.section !== 'body') return;
-                        if (data.column.index === 1) {
+                        if (data.column.index === 3 || data.column.index === 4) {
                             const v = data.cell.text[0];
-                            if (v === 'LONG') data.cell.styles.textColor = GREEN;
-                            else if (v === 'SHORT') data.cell.styles.textColor = RED;
-                            else if (v === 'WAIT') data.cell.styles.textColor = AMBER;
-                            data.cell.styles.fontStyle = 'bold';
-                        }
-                        if (data.column.index === 6 || data.column.index === 7) {
-                            const v = data.cell.text[0];
-                            if (v.startsWith('+')) data.cell.styles.textColor = GREEN;
-                            else if (v.startsWith('-')) data.cell.styles.textColor = RED;
-                            data.cell.styles.fontStyle = 'bold';
-                        }
-                        if (data.column.index === 8) {
-                            const v = data.cell.text[0];
-                            if (v === 'WIN') data.cell.styles.textColor = GREEN;
-                            else if (v === 'LOSS') data.cell.styles.textColor = RED;
-                            else if (v === 'PENDING') data.cell.styles.textColor = MUTED;
-                            else data.cell.styles.textColor = AMBER;
+                            if (v === 'YES') data.cell.styles.textColor = GREEN;
+                            else if (v === 'NO') data.cell.styles.textColor = RED;
                             data.cell.styles.fontStyle = 'bold';
                         }
                     },
@@ -917,8 +901,6 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                             {verdict.summary}
                                         </p>
                                         <div className="mt-3 flex items-center gap-3 text-[11px] font-mono text-gray-500">
-                                            <span>{t('modal.entry')} {verdict.entryPrice ?? '—'}</span>
-                                            <span>·</span>
                                             <span>{t('modal.report_label')} {verdict.entryReportDate ?? '—'}</span>
                                             {verdict.priceChangePct !== null && verdict.priceChangePct !== undefined && (
                                                 <>
@@ -1251,252 +1233,214 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                     className="mt-3 bg-[#0e0e14] border border-white/[0.07] rounded-3xl p-5"
                                 >
                                     <p className="text-[12.5px] text-gray-500 mb-2 leading-relaxed">
-                                        {t('modal.perf_logic_r')}
+                                        {t('modal.perf_logic')}
                                     </p>
                                     <p className="text-[12px] text-amber-300/70 mb-4 leading-relaxed bg-amber-500/[0.04] border border-amber-500/15 rounded-xl px-3 py-2">
-                                        {t('modal.perf_synth_note_r')}
+                                        {t('modal.perf_synth_note')}
                                     </p>
                                     {performanceLoading ? (
                                         <div className="flex items-center gap-2 text-gray-500 text-[13px]">
                                             <RefreshCw size={14} className="animate-spin text-amber-400/60" />
                                             {t('modal.perf_loading')}
                                         </div>
-                                    ) : performance ? (
+                                    ) : performance && performance.modes ? (
                                         <>
-                                            <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
+                                            {/* Mode toggle */}
+                                            <div className="flex gap-2 mb-2">
+                                                <button
+                                                    data-testid="mode-lts-btn"
+                                                    onClick={() => setPerfMode('LTS')}
+                                                    className={cn(
+                                                        'flex-1 px-3 py-2 rounded-xl text-[11px] font-semibold uppercase tracking-wider transition-all',
+                                                        perfMode === 'LTS'
+                                                            ? 'bg-amber-500/15 text-amber-300 border border-amber-500/40'
+                                                            : 'bg-black/30 text-gray-500 border border-white/5 hover:text-gray-300'
+                                                    )}
+                                                >
+                                                    {t('modal.perf.mode_lts')}
+                                                </button>
+                                                <button
+                                                    data-testid="mode-st-btn"
+                                                    onClick={() => setPerfMode('ST')}
+                                                    className={cn(
+                                                        'flex-1 px-3 py-2 rounded-xl text-[11px] font-semibold uppercase tracking-wider transition-all',
+                                                        perfMode === 'ST'
+                                                            ? 'bg-amber-500/15 text-amber-300 border border-amber-500/40'
+                                                            : 'bg-black/30 text-gray-500 border border-white/5 hover:text-gray-300'
+                                                    )}
+                                                >
+                                                    {t('modal.perf.mode_st')}
+                                                </button>
+                                            </div>
+                                            <p className="text-[11px] text-gray-600 italic mb-4">
+                                                {perfMode === 'LTS' ? t('modal.perf.mode_lts_desc') : t('modal.perf.mode_st_desc')}
+                                            </p>
+
+                                            {/* Two windows side by side */}
+                                            <div className="grid md:grid-cols-2 gap-3 mb-5">
                                                 {[
-                                                    { label: t('modal.perf.total'), v: performance.totalVerdicts },
-                                                    { label: t('modal.perf.evaluated'), v: performance.evaluated },
-                                                    { label: t('modal.perf.win'), v: performance.wins, color: 'text-[#34d399]' },
-                                                    { label: t('modal.perf.loss'), v: performance.losses, color: 'text-[#fb7185]' },
-                                                    {
-                                                        label: t('modal.perf.winrate'),
-                                                        v: performance.winRate !== null ? `${performance.winRate}%` : '—',
-                                                        color: 'text-amber-300',
-                                                    },
-                                                ].map((s) => (
-                                                    <div key={s.label} className="bg-black/30 border border-white/5 rounded-2xl p-3">
-                                                        <div className="text-[10px] tracking-widest uppercase text-gray-500 font-semibold mb-1">
-                                                            {s.label}
-                                                        </div>
-                                                        <div className={cn('font-mono text-[18px] font-semibold tnum', s.color)}>
-                                                            {s.v ?? '—'}
-                                                        </div>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                            {/* Stats strip: Net Excursion (primary) + R (secondary) */}
-                                            <div className="grid grid-cols-2 gap-3 mb-4">
-                                                <div className="bg-black/30 border border-amber-500/25 rounded-2xl p-3">
-                                                    <div className="text-[10px] tracking-widest uppercase text-amber-300/80 font-semibold mb-1">
-                                                        {t('modal.perf.net_pct_cumulative')}
-                                                    </div>
-                                                    <div
-                                                        className={cn(
-                                                            'font-mono text-[24px] font-bold tnum',
-                                                            (performance.cumulativeNetPct ?? 0) > 0 && 'text-[#34d399]',
-                                                            (performance.cumulativeNetPct ?? 0) < 0 && 'text-[#fb7185]',
-                                                            (performance.cumulativeNetPct ?? 0) === 0 && 'text-gray-300'
-                                                        )}
-                                                    >
-                                                        {performance.cumulativeNetPct != null
-                                                            ? `${formatSigned(performance.cumulativeNetPct)}%`
-                                                            : '—'}
-                                                    </div>
-                                                </div>
-                                                <div className="bg-black/30 border border-white/5 rounded-2xl p-3">
-                                                    <div className="text-[10px] tracking-widest uppercase text-gray-500 font-semibold mb-1">
-                                                        {t('modal.perf.r_cumulative')}
-                                                    </div>
-                                                    <div
-                                                        className={cn(
-                                                            'font-mono text-[20px] font-semibold tnum',
-                                                            (performance.cumulativeR ?? 0) > 0 && 'text-[#34d399]',
-                                                            (performance.cumulativeR ?? 0) < 0 && 'text-[#fb7185]',
-                                                            (performance.cumulativeR ?? 0) === 0 && 'text-gray-300'
-                                                        )}
-                                                    >
-                                                        {performance.cumulativeR != null
-                                                            ? `${formatSigned(performance.cumulativeR)}R`
-                                                            : '—'}
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            {performance.history.length > 0 ? (
-                                                <>
-                                                    {/* Equity curve based on cumulative Net Excursion % */}
-                                                    {(() => {
-                                                        const evaluated = [...performance.history]
-                                                            .reverse()
-                                                            .filter((r) => r.netPct !== null && r.netPct !== undefined);
-                                                        if (evaluated.length === 0) return null;
-                                                        let cum = 0;
-                                                        const curve = evaluated.map((r) => {
-                                                            cum += r.netPct;
-                                                            return { date: r.verdictDate, equity: Number(cum.toFixed(3)) };
-                                                        });
-                                                        const showCurve = curve.slice(-50);
+                                                    { key: 'window12w', title: t('modal.perf.window_12w') },
+                                                    { key: 'window24w', title: t('modal.perf.window_24w') },
+                                                ].map(({ key, title }) => {
+                                                    const m = performance.modes[perfMode]?.[key];
+                                                    if (!m || m.total === 0) {
                                                         return (
-                                                            <div
-                                                                data-testid="equity-chart"
-                                                                className="bg-black/30 border border-white/5 rounded-2xl p-4 mb-4"
-                                                            >
-                                                                <div className="flex items-center justify-between mb-2">
-                                                                    <span className="text-[11px] uppercase tracking-[0.22em] text-gray-500 font-semibold">
-                                                                        {t('modal.perf.equity_label_pct', showCurve.length)}
-                                                                    </span>
-                                                                    <span
-                                                                        className={cn(
-                                                                            'font-mono text-[14px] font-semibold tnum',
-                                                                            cum > 0 && 'text-[#34d399]',
-                                                                            cum < 0 && 'text-[#fb7185]',
-                                                                            cum === 0 && 'text-gray-300'
-                                                                        )}
-                                                                    >
-                                                                        {formatSigned(cum.toFixed(2))}%
-                                                                    </span>
+                                                            <div key={key} className="bg-black/30 border border-white/5 rounded-2xl p-4">
+                                                                <div className="text-[10px] tracking-widest uppercase text-gray-500 font-semibold mb-2">
+                                                                    {title}
                                                                 </div>
-                                                                <div className="h-[180px]">
-                                                                    <ResponsiveContainer width="100%" height="100%">
-                                                                        <AreaChart data={showCurve} margin={{ top: 4, right: 4, bottom: 0, left: -10 }}>
-                                                                            <defs>
-                                                                                <linearGradient id="eqGrad" x1="0" y1="0" x2="0" y2="1">
-                                                                                    <stop offset="0%" stopColor="#f59e0b" stopOpacity={0.45} />
-                                                                                    <stop offset="100%" stopColor="#f59e0b" stopOpacity={0} />
-                                                                                </linearGradient>
-                                                                            </defs>
-                                                                            <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.04)" />
-                                                                            <XAxis
-                                                                                dataKey="date"
-                                                                                stroke="#6b7280"
-                                                                                fontSize={10}
-                                                                                axisLine={false}
-                                                                                tickLine={false}
-                                                                                tickFormatter={(v) => v?.slice(5)}
-                                                                                tick={{ fontFamily: 'Geist Mono' }}
-                                                                            />
-                                                                            <YAxis
-                                                                                stroke="#6b7280"
-                                                                                fontSize={10}
-                                                                                axisLine={false}
-                                                                                tickLine={false}
-                                                                                width={50}
-                                                                                tick={{ fontFamily: 'Geist Mono' }}
-                                                                                tickFormatter={(v) => v + '%'}
-                                                                            />
-                                                                            <Tooltip
-                                                                                contentStyle={{
-                                                                                    backgroundColor: '#0a0a0d',
-                                                                                    border: '1px solid rgba(245,158,11,0.4)',
-                                                                                    borderRadius: 10,
-                                                                                    fontSize: 11,
-                                                                                    fontFamily: 'Geist Mono',
-                                                                                }}
-                                                                                formatter={(v) => `${v}%`}
-                                                                            />
-                                                                            <Area
-                                                                                type="monotone"
-                                                                                dataKey="equity"
-                                                                                stroke="#f59e0b"
-                                                                                strokeWidth={2}
-                                                                                fill="url(#eqGrad)"
-                                                                            />
-                                                                        </AreaChart>
-                                                                    </ResponsiveContainer>
+                                                                <div className="text-[12px] text-gray-500 italic">
+                                                                    {t('modal.perf.no_signals')}
                                                                 </div>
                                                             </div>
                                                         );
-                                                    })()}
+                                                    }
+                                                    const acc = m.accuracy ?? 0;
+                                                    const accColor =
+                                                        acc >= 55 ? 'text-[#34d399]' : acc >= 50 ? 'text-amber-300' : 'text-[#fb7185]';
+                                                    const denom = m.respected + m.notRespected || 1;
+                                                    const respPct = (m.respected / denom) * 100;
+                                                    const hc = m.highConfAccuracy;
+                                                    const hcAcc = hc?.accuracy;
+                                                    const hcColor =
+                                                        (hcAcc ?? 0) >= 55
+                                                            ? 'text-[#34d399]'
+                                                            : (hcAcc ?? 0) >= 50
+                                                            ? 'text-amber-300'
+                                                            : 'text-[#fb7185]';
+                                                    return (
+                                                        <div
+                                                            key={key}
+                                                            data-testid={`window-${key}`}
+                                                            className="bg-black/30 border border-white/5 rounded-2xl p-4"
+                                                        >
+                                                            <div className="text-[10px] tracking-widest uppercase text-gray-500 font-semibold mb-3">
+                                                                {title}
+                                                            </div>
+                                                            <div className="mb-3">
+                                                                <div className="text-[9px] uppercase tracking-widest text-gray-500 mb-0.5">
+                                                                    {t('modal.perf.accuracy')}
+                                                                </div>
+                                                                <div className={cn('text-[32px] font-bold font-mono tnum leading-none', accColor)}>
+                                                                    {acc != null ? `${acc}%` : '—'}
+                                                                </div>
+                                                            </div>
+                                                            <div className="flex h-2 rounded-full overflow-hidden mb-3 bg-black/40">
+                                                                {m.respected > 0 && (
+                                                                    <div className="bg-[#34d399]" style={{ width: `${respPct}%` }} />
+                                                                )}
+                                                                {m.notRespected > 0 && (
+                                                                    <div className="bg-[#fb7185]" style={{ width: `${100 - respPct}%` }} />
+                                                                )}
+                                                            </div>
+                                                            <div className="space-y-1.5 text-[12px]">
+                                                                <div className="flex justify-between">
+                                                                    <span className="text-gray-400">{t('modal.perf.respected')}</span>
+                                                                    <span className="font-mono text-[#34d399] font-semibold">{m.respected}</span>
+                                                                </div>
+                                                                <div className="flex justify-between">
+                                                                    <span className="text-gray-400">{t('modal.perf.not_respected')}</span>
+                                                                    <span className="font-mono text-[#fb7185] font-semibold">{m.notRespected}</span>
+                                                                </div>
+                                                                <div className="flex justify-between">
+                                                                    <span className="text-gray-500">{t('modal.perf.skipped')}</span>
+                                                                    <span className="font-mono text-gray-500">{m.skipped}</span>
+                                                                </div>
+                                                                <div className="flex justify-between pt-1.5 border-t border-white/5 mt-1.5">
+                                                                    <span className="text-gray-400">{t('modal.perf.avg_fav_range')}</span>
+                                                                    <span className="font-mono text-[#34d399]/85 font-semibold">
+                                                                        {m.avgFavorableRangePct != null ? `+${m.avgFavorableRangePct}%` : '—'}
+                                                                    </span>
+                                                                </div>
+                                                                <div className="flex justify-between">
+                                                                    <span className="text-gray-400">{t('modal.perf.avg_adv_range')}</span>
+                                                                    <span className="font-mono text-[#fb7185]/85 font-semibold">
+                                                                        {m.avgAdverseRangePct != null ? `${m.avgAdverseRangePct}%` : '—'}
+                                                                    </span>
+                                                                </div>
+                                                            </div>
+                                                            {hc && hc.total > 0 && (
+                                                                <div className="mt-3 pt-3 border-t border-white/5 text-[11px] text-gray-400 flex items-center justify-between">
+                                                                    <span>{t('modal.perf.high_conf')}</span>
+                                                                    <span>
+                                                                        <span className={cn('font-mono font-semibold', hcColor)}>
+                                                                            {hcAcc != null ? `${hcAcc}%` : '—'}
+                                                                        </span>
+                                                                        <span className="text-gray-600"> ({hc.respected}/{hc.total})</span>
+                                                                    </span>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
 
+                                            {/* History table */}
+                                            {performance.history && performance.history.length > 0 ? (
+                                                <>
                                                     <div className="text-[11px] uppercase tracking-[0.22em] text-gray-500 font-semibold mb-2">
-                                                        {t('modal.perf.last_n', Math.min(10, performance.history.length))}
+                                                        {t('modal.perf.history_title')}
                                                     </div>
                                                     <div className="overflow-x-auto">
-                                                    <table className="w-full text-[12.5px]">
-                                                        <thead>
-                                                            <tr className="text-[10px] uppercase tracking-[0.2em] text-gray-500 font-semibold border-b border-white/5">
-                                                                <th className="px-2 py-2 text-left">{t('modal.perf.col.report')}</th>
-                                                                <th className="px-2 py-2 text-left">{t('modal.perf.col.verdict')}</th>
-                                                                <th className="px-2 py-2 text-right">{t('modal.perf.col.entry_price')}</th>
-                                                                <th className="px-2 py-2 text-right">{t('modal.perf.col.exit_price')}</th>
-                                                                <th className="px-2 py-2 text-right">{t('modal.perf.col.week_min')}</th>
-                                                                <th className="px-2 py-2 text-right">{t('modal.perf.col.week_max')}</th>
-                                                                <th className="px-2 py-2 text-right">{t('modal.perf.col.net_pct')}</th>
-                                                                <th className="px-2 py-2 text-right">{t('modal.perf.col.r')}</th>
-                                                                <th className="px-2 py-2 text-left">{t('modal.perf.col.outcome')}</th>
-                                                            </tr>
-                                                        </thead>
-                                                        <tbody className="font-mono">
-                                                            {performance.history.slice(0, 10).map((r, i) => (
-                                                                <tr
-                                                                    key={i}
-                                                                    className={cn(
-                                                                        'border-b border-white/[0.04]',
-                                                                        i % 2 === 1 && 'bg-white/[0.02]'
-                                                                    )}
-                                                                >
-                                                                    <td className="px-2 py-2 text-gray-200">{r.verdictDate}</td>
-                                                                    <td
-                                                                        className={cn(
-                                                                            'px-2 py-2 font-semibold',
-                                                                            r.verdict === 'LONG' && 'text-[#34d399]',
-                                                                            r.verdict === 'SHORT' && 'text-[#fb7185]',
-                                                                            r.verdict === 'WAIT' && 'text-amber-300'
-                                                                        )}
-                                                                    >
-                                                                        {r.verdict}
-                                                                    </td>
-                                                                    <td className="px-2 py-2 text-right text-gray-200">
-                                                                        {r.entryPrice != null ? Number(r.entryPrice).toFixed(4) : '—'}
-                                                                    </td>
-                                                                    <td className="px-2 py-2 text-right text-gray-200">
-                                                                        {r.exitPrice != null ? Number(r.exitPrice).toFixed(4) : '—'}
-                                                                    </td>
-                                                                    <td className="px-2 py-2 text-right text-gray-500">
-                                                                        {r.weekMin != null ? Number(r.weekMin).toFixed(4) : '—'}
-                                                                    </td>
-                                                                    <td className="px-2 py-2 text-right text-gray-500">
-                                                                        {r.weekMax != null ? Number(r.weekMax).toFixed(4) : '—'}
-                                                                    </td>
-                                                                    <td
-                                                                        className={cn(
-                                                                            'px-2 py-2 text-right font-semibold',
-                                                                            r.netPct == null && 'text-gray-500',
-                                                                            r.netPct > 0 && 'text-[#34d399]',
-                                                                            r.netPct < 0 && 'text-[#fb7185]',
-                                                                            r.netPct === 0 && 'text-gray-300'
-                                                                        )}
-                                                                    >
-                                                                        {r.netPct != null ? `${formatSigned(r.netPct.toFixed(2))}%` : '—'}
-                                                                    </td>
-                                                                    <td
-                                                                        className={cn(
-                                                                            'px-2 py-2 text-right font-semibold',
-                                                                            r.r == null && 'text-gray-500',
-                                                                            r.r > 0 && 'text-[#34d399]',
-                                                                            r.r < 0 && 'text-[#fb7185]',
-                                                                            r.r === 0 && 'text-gray-300'
-                                                                        )}
-                                                                    >
-                                                                        {r.r != null ? `${formatSigned(r.r)}R` : '—'}
-                                                                    </td>
-                                                                    <td
-                                                                        className={cn(
-                                                                            'px-2 py-2 text-[10px] uppercase tracking-widest font-bold',
-                                                                            r.outcome === 'WIN' && 'text-[#34d399]',
-                                                                            r.outcome === 'LOSS' && 'text-[#fb7185]',
-                                                                            r.outcome === 'PENDING' && 'text-gray-500',
-                                                                            r.outcome === 'NEUTRAL' && 'text-amber-300',
-                                                                            r.outcome === 'FLAT' && 'text-gray-300'
-                                                                        )}
-                                                                    >
-                                                                        {r.outcome}
-                                                                    </td>
+                                                        <table className="w-full text-[12.5px]">
+                                                            <thead>
+                                                                <tr className="text-[10px] uppercase tracking-[0.2em] text-gray-500 font-semibold border-b border-white/5">
+                                                                    <th className="px-2 py-2 text-left">{t('modal.perf.col.report')}</th>
+                                                                    <th className="px-2 py-2 text-right">{t('modal.perf.col.conf')}</th>
+                                                                    <th className="px-2 py-2 text-right">{t('modal.perf.col.range')}</th>
+                                                                    <th className="px-2 py-2 text-center">{t('modal.perf.col.respected_lts')}</th>
+                                                                    <th className="px-2 py-2 text-center">{t('modal.perf.col.respected_st')}</th>
                                                                 </tr>
-                                                            ))}
-                                                        </tbody>
-                                                    </table>
-                                                </div>
+                                                            </thead>
+                                                            <tbody className="font-mono">
+                                                                {performance.history.slice(0, 20).map((r, i) => (
+                                                                    <tr
+                                                                        key={i}
+                                                                        className={cn(
+                                                                            'border-b border-white/[0.04]',
+                                                                            i % 2 === 1 && 'bg-white/[0.02]'
+                                                                        )}
+                                                                    >
+                                                                        <td className="px-2 py-2 text-gray-200">{r.reportDate}</td>
+                                                                        <td className="px-2 py-2 text-right text-amber-300/85">
+                                                                            {r.confidence ?? '—'}
+                                                                        </td>
+                                                                        <td className="px-2 py-2 text-right text-gray-300">
+                                                                            {r.weekRangePct != null ? `${r.weekRangePct.toFixed(2)}%` : '—'}
+                                                                        </td>
+                                                                        <td
+                                                                            className={cn(
+                                                                                'px-2 py-2 text-center font-bold',
+                                                                                r.respectedLTS === true && 'text-[#34d399]',
+                                                                                r.respectedLTS === false && 'text-[#fb7185]',
+                                                                                r.respectedLTS == null && 'text-gray-600'
+                                                                            )}
+                                                                        >
+                                                                            {r.respectedLTS === true
+                                                                                ? t('modal.perf.respected_yes')
+                                                                                : r.respectedLTS === false
+                                                                                ? t('modal.perf.respected_no')
+                                                                                : t('modal.perf.respected_na')}
+                                                                        </td>
+                                                                        <td
+                                                                            className={cn(
+                                                                                'px-2 py-2 text-center font-bold',
+                                                                                r.respectedST === true && 'text-[#34d399]',
+                                                                                r.respectedST === false && 'text-[#fb7185]',
+                                                                                r.respectedST == null && 'text-gray-600'
+                                                                            )}
+                                                                        >
+                                                                            {r.respectedST === true
+                                                                                ? t('modal.perf.respected_yes')
+                                                                                : r.respectedST === false
+                                                                                ? t('modal.perf.respected_no')
+                                                                                : t('modal.perf.respected_na')}
+                                                                        </td>
+                                                                    </tr>
+                                                                ))}
+                                                            </tbody>
+                                                        </table>
+                                                    </div>
                                                 </>
                                             ) : (
                                                 <p className="text-[13px] text-gray-500 mt-3">

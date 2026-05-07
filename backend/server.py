@@ -379,13 +379,33 @@ async def cot_history(asset_id: str, limit: int = Query(60, ge=1, le=200), refre
 
 @app.post("/api/cot/refresh")
 async def refresh_all() -> Dict[str, Any]:
-    """Invalidate cache for all assets (used by Saturday cron and manual refresh)."""
+    """Manual / cron-triggered refresh.
+
+    Clears only the per-asset snapshot cache + per-asset macro/verdict caches
+    (so the NEXT fetch produces fresh AI insight). Does NOT touch
+    cot_history (the accumulated weekly time-series) — that data is
+    immutable and rebuilt incrementally by the scrapers.
+    """
     await db[CACHE_COLL].delete_many({})
-    await db[HISTORY_COLL].delete_many({})
     await db[MACRO_COLL].delete_many({})
     await db[VERDICT_COLL].delete_many({})
     await db[CALENDAR_COLL].delete_many({})
     return {"status": "cache cleared", "time": _now().isoformat()}
+
+
+@app.post("/api/cron/warm")
+@app.get("/api/cron/warm")
+async def cron_warm() -> Dict[str, Any]:
+    """Endpoint for external cron schedulers (e.g. cron-job.org) to keep
+    the backend warm and ensure all core assets have fresh data ready.
+
+    Triggers an asynchronous background pre-warm of every core asset's
+    snapshot, so users always land on populated cards. Safe to call as
+    often as every 10-15 minutes — uses internal TTL to avoid redundant
+    work.
+    """
+    asyncio.create_task(_prewarm_all_assets(scope="all"))
+    return {"status": "warm started", "time": _now().isoformat()}
 
 
 # ---------------------------------------------------------------------------
@@ -581,177 +601,225 @@ async def final_verdict(asset_id: str, refresh: bool = Query(False), lang: str =
 @api.get("/verdict/{asset_id}/performance")
 async def verdict_performance(asset_id: str) -> Dict[str, Any]:
     """
-    Logica semplificata:
-      - Entry: Monday close della settimana successiva al report COT.
-      - Risk window: Mon → Fri (min/max daily price).
-      - Per ogni verdict: WIN (+1R) se MFE > MAE, LOSS (-1R) se MAE > MFE, FLAT (0R) se uguali.
-      - Cumulative R = somma dei +1/-1 (= wins - losses).
-    Auto-backfills synthetic verdicts (rule-based, NO LLM) for last 50 reports.
+    Signal Accuracy Backtest — misura quanto il segnale COT della settimana A
+    è stato rispettato dall'azione del prezzo nella settimana A+1 (lun-ven).
+
+    Segnale rispettato (definizione chronological):
+      - LONG rispettato se il giorno del MINIMO settimanale viene PRIMA del giorno
+        del MASSIMO → il prezzo è salito dopo il minimo (direzione LONG confermata).
+      - SHORT rispettato se il giorno del MASSIMO viene PRIMA del giorno del MINIMO
+        → il prezzo è sceso dopo il massimo (direzione SHORT confermata).
+
+    Due modalità di generazione segnale:
+      - LTS (Long-Term & Short-Term): net > 0 AND delta > 0 → LONG;
+        net < 0 AND delta < 0 → SHORT; altrimenti WAIT (skip).
+      - ST (Short-Term): delta > 0 → LONG; delta < 0 → SHORT; delta = 0 → WAIT.
+
+    Due finestre: ultime 52 settimane + tutto lo storico disponibile.
+    Nessuna simulazione di entry/exit: metrica pura di qualità direzionale.
     """
     asset_id = asset_id.upper()
     if asset_id not in ASSET_MAP:
         raise HTTPException(status_code=404, detail="Unknown asset")
 
-    await _backfill_verdicts(asset_id, depth=50)
+    hist = await cot_history(asset_id, limit=200)
+    if not hist:
+        return {
+            "assetId": asset_id,
+            "generatedAt": _now().isoformat(),
+            "modes": {},
+            "history": [],
+        }
 
-    cursor = db[VERDICT_HISTORY_COLL].find(
-        {"assetId": asset_id}, {"_id": 0}
-    ).sort("entryReportDate", 1)
-    verdicts = await cursor.to_list(length=500)
-
-    seen_entries = set()
-    unique_verdicts = []
-    for v in verdicts:
-        ed = v.get("entryReportDate")
-        if not ed or ed in seen_entries:
-            continue
-        # Skip WAIT verdicts: only LONG/SHORT trades count for performance
-        if v.get("verdict") not in ("LONG", "SHORT"):
-            continue
-        seen_entries.add(ed)
-        unique_verdicts.append(v)
-
-    unique_verdicts = unique_verdicts[-50:]
-
-    # Fetch daily OHLC (use high/low to capture intra-day extremes)
     ohlc: Dict[str, Dict[str, float]] = {}
-    if unique_verdicts and asset_id in YAHOO_SYMBOL:
-        dates = [v["entryReportDate"] for v in unique_verdicts if v.get("entryReportDate")]
+    if asset_id in YAHOO_SYMBOL:
+        dates = [h.get("date") for h in hist if h.get("date")]
         if dates:
             min_d = datetime.strptime(min(dates), "%Y-%m-%d")
             max_d = datetime.strptime(max(dates), "%Y-%m-%d") + timedelta(days=14)
             ohlc = await fetch_daily_ohlc(asset_id, min_d - timedelta(days=3), max_d)
 
-    def _week_days(start_date: str, end_date: str):
-        """Return ordered list of (date_iso, high, low) for trading days within [start, end]."""
+    def _week_days(start_iso: str, end_iso: str):
         try:
-            sd = datetime.strptime(start_date, "%Y-%m-%d").date()
-            ed = datetime.strptime(end_date, "%Y-%m-%d").date()
+            sd = datetime.strptime(start_iso, "%Y-%m-%d").date()
+            ed = datetime.strptime(end_iso, "%Y-%m-%d").date()
         except Exception:
             return []
         out = []
         cur = sd
         while cur <= ed:
             key = cur.isoformat()
-            row = ohlc.get(key)
-            if row and row.get("high") is not None and row.get("low") is not None:
-                out.append((key, row["high"], row["low"]))
+            r = ohlc.get(key)
+            if r and r.get("high") is not None and r.get("low") is not None:
+                out.append((key, float(r["high"]), float(r["low"])))
             cur = cur + timedelta(days=1)
         return out
 
-    def _chronological_week_trade(week: list, direction: str):
-        """Uses intra-day high/low. For LONG the weekly low is the best entry
-        (cheapest price of the week) and the weekly high is the best exit.
-        Outcome depends on chronological order of the days hosting those extremes.
-        LONG:
-          - if low day comes before high day → WIN (entry=low, exit=high)
-          - else trader is caught at the high, drags to the low → LOSS (entry=high, exit=low)
-        SHORT: mirrored.
-        """
-        if len(week) < 2:
+    def _signal_lts(row: Dict[str, Any]) -> str:
+        net = row.get("netPosition", 0) or 0
+        delta = row.get("wowDelta", 0) or 0
+        if net > 0 and delta > 0:
+            return "LONG"
+        if net < 0 and delta < 0:
+            return "SHORT"
+        return "WAIT"
+
+    def _signal_st(row: Dict[str, Any]) -> str:
+        delta = row.get("wowDelta", 0) or 0
+        if delta > 0:
+            return "LONG"
+        if delta < 0:
+            return "SHORT"
+        return "WAIT"
+
+    def _confidence(row: Dict[str, Any]) -> int:
+        net = row.get("netPosition", 0) or 0
+        delta = row.get("wowDelta", 0) or 0
+        lng = row.get("long", 0) or 1
+        srt = row.get("short", 0) or 1
+        total = lng + srt or 1
+        mag = abs(net / total) * 2 + abs(delta / total) * 3
+        if mag > 0.9:
+            return 5
+        if mag > 0.6:
+            return 4
+        if mag > 0.4:
+            return 3
+        if mag > 0.2:
+            return 2
+        return 1
+
+    def _respected(signal: str, high_before_low: Optional[bool]) -> Optional[bool]:
+        if signal not in ("LONG", "SHORT") or high_before_low is None:
             return None
-        # Indices of the day hosting the absolute weekly low and high
-        min_idx = min(range(len(week)), key=lambda i: week[i][2])  # lowest low
-        max_idx = max(range(len(week)), key=lambda i: week[i][1])  # highest high
-        if min_idx == max_idx:
-            return None
-        if direction == "LONG":
-            if min_idx < max_idx:
-                ed_in, _, entry_low = week[min_idx]
-                ed_out, exit_high, _ = week[max_idx]
-                return ed_in, entry_low, ed_out, exit_high
-            else:
-                ed_in, entry_high, _ = week[max_idx]
-                ed_out, _, exit_low = week[min_idx]
-                return ed_in, entry_high, ed_out, exit_low
-        else:  # SHORT
-            if max_idx < min_idx:
-                ed_in, entry_high, _ = week[max_idx]
-                ed_out, _, exit_low = week[min_idx]
-                return ed_in, entry_high, ed_out, exit_low
-            else:
-                ed_in, _, entry_low = week[min_idx]
-                ed_out, exit_high, _ = week[max_idx]
-                return ed_in, entry_low, ed_out, exit_high
+        # LONG respected → low came first (high_before_low == False)
+        # SHORT respected → high came first (high_before_low == True)
+        return (not high_before_low) if signal == "LONG" else high_before_low
 
-    results = []
-    wins = losses = pending = 0
-    cum_r = 0
-    cum_net_pct = 0.0
-    for v in unique_verdicts:
-        report_date = v.get("entryReportDate")
-        week_mon = next_monday(report_date)
-        week_fri = following_friday(week_mon)
-        week = _week_days(week_mon, week_fri)
-        # Informational week low/high (true daily high/low, not close)
-        w_min = min((lo for _, _, lo in week), default=None)
-        w_max = max((hi for _, hi, _ in week), default=None)
+    history_out: List[Dict[str, Any]] = []
+    for row in hist:
+        rd = row.get("date")
+        if not rd:
+            continue
+        mon = next_monday(rd)
+        fri = following_friday(mon)
+        week = _week_days(mon, fri)
 
-        verdict_dir = v.get("verdict")
-        entry_price = None
-        exit_price = None
-        entry_date = week_mon
-        exit_date = week_fri
-        r = None
-        net_pct = None
-        outcome = "PENDING"
+        week_low = week_high = None
+        high_before_low: Optional[bool] = None
+        range_pct: Optional[float] = None
 
-        if verdict_dir in ("LONG", "SHORT"):
-            best = _chronological_week_trade(week, verdict_dir)
-            if best is not None:
-                entry_date, entry_price, exit_date, exit_price = best
-                direction = 1 if verdict_dir == "LONG" else -1
-                if entry_price and entry_price != 0:
-                    raw_pct = ((exit_price - entry_price) / entry_price) * 100 * direction
-                    net_pct = round(raw_pct, 3)
-                    if net_pct > 0:
-                        r = 1
-                        outcome = "WIN"
-                        wins += 1
-                    elif net_pct < 0:
-                        r = -1
-                        outcome = "LOSS"
-                        losses += 1
-                    else:
-                        r = 0
-                        outcome = "FLAT"
-                    cum_r += r
-                    cum_net_pct += net_pct
-            else:
-                pending += 1
-        else:
-            pending += 1
+        if len(week) >= 2:
+            min_idx = min(range(len(week)), key=lambda i: week[i][2])
+            max_idx = max(range(len(week)), key=lambda i: week[i][1])
+            if min_idx != max_idx:
+                week_low = week[min_idx][2]
+                week_high = week[max_idx][1]
+                high_before_low = max_idx < min_idx
+                if week_low > 0:
+                    range_pct = round((week_high - week_low) / week_low * 100, 3)
 
-        results.append({
-            "verdictDate": report_date,
-            "verdict": verdict_dir,
-            "confidence": v.get("confidence"),
-            "entryDate": entry_date,
-            "entryPrice": entry_price,
-            "exitDate": exit_date,
-            "exitPrice": exit_price,
-            "weekMin": w_min,
-            "weekMax": w_max,
-            "r": r,
-            "netPct": net_pct,
-            "outcome": outcome,
-            "summary": v.get("summary"),
-            "synthetic": v.get("synthetic", False),
+        s_lts = _signal_lts(row)
+        s_st = _signal_st(row)
+        conf = _confidence(row)
+        resp_lts = _respected(s_lts, high_before_low)
+        resp_st = _respected(s_st, high_before_low)
+
+        history_out.append({
+            "reportDate": rd,
+            "weekStart": mon,
+            "weekEnd": fri,
+            "weekLow": round(week_low, 4) if week_low is not None else None,
+            "weekHigh": round(week_high, 4) if week_high is not None else None,
+            "weekRangePct": range_pct,
+            "highBeforeLow": high_before_low,
+            "signalLTS": s_lts,
+            "signalST": s_st,
+            "confidence": conf,
+            "respectedLTS": resp_lts,
+            "respectedST": resp_st,
+            "netPosition": row.get("netPosition"),
+            "wowDelta": row.get("wowDelta"),
         })
 
-    total_evaluated = wins + losses
-    win_rate = round((wins / total_evaluated) * 100, 1) if total_evaluated else None
+    # Oldest first for windowing
+    history_out.sort(key=lambda h: h["reportDate"])
+
+    def _metrics(rows: List[Dict[str, Any]], sig_key: str, resp_key: str) -> Dict[str, Any]:
+        total_signals = respected = not_resp = skipped = pending = 0
+        fav_moves: List[float] = []
+        adv_moves: List[float] = []
+        hc_total = hc_resp = 0
+        for r in rows:
+            sig = r.get(sig_key)
+            rp = r.get(resp_key)
+            if sig == "WAIT":
+                skipped += 1
+                continue
+            if rp is None:
+                pending += 1
+                continue
+            total_signals += 1
+            rg = r.get("weekRangePct") or 0
+            if rp:
+                respected += 1
+                if rg:
+                    fav_moves.append(rg)
+                if (r.get("confidence") or 0) >= 4:
+                    hc_total += 1
+                    hc_resp += 1
+            else:
+                not_resp += 1
+                if rg:
+                    adv_moves.append(rg)
+                if (r.get("confidence") or 0) >= 4:
+                    hc_total += 1
+        accuracy = round(respected / total_signals * 100, 1) if total_signals > 0 else None
+        avg_fav = round(sum(fav_moves) / len(fav_moves), 2) if fav_moves else None
+        avg_adv = round(sum(adv_moves) / len(adv_moves), 2) if adv_moves else None
+        hc_acc = round(hc_resp / hc_total * 100, 1) if hc_total > 0 else None
+        return {
+            "total": total_signals,
+            "respected": respected,
+            "notRespected": not_resp,
+            "skipped": skipped,
+            "pending": pending,
+            "accuracy": accuracy,
+            "avgFavorableRangePct": avg_fav,
+            "avgAdverseRangePct": avg_adv,
+            "highConfAccuracy": {
+                "minConf": 4,
+                "total": hc_total,
+                "respected": hc_resp,
+                "accuracy": hc_acc,
+            },
+        }
+
+    window_12w = history_out[-12:]
+    window_24w = history_out[-24:]
+    modes = {
+        "LTS": {
+            "label": "LONG-TERM & SHORT-TERM",
+            "description": "Segnale emesso solo quando Net Position e Δ WoW sono concordi in direzione.",
+            "window12w": _metrics(window_12w, "signalLTS", "respectedLTS"),
+            "window24w": _metrics(window_24w, "signalLTS", "respectedLTS"),
+        },
+        "ST": {
+            "label": "SHORT-TERM",
+            "description": "Segnale emesso solo in base alla direzione del Δ WoW (momentum settimanale puro).",
+            "window12w": _metrics(window_12w, "signalST", "respectedST"),
+            "window24w": _metrics(window_24w, "signalST", "respectedST"),
+        },
+    }
+
+    # Newest first for UI display; cap at 60 rows
+    history_display = list(reversed(history_out))[:60]
+
     return {
         "assetId": asset_id,
-        "totalVerdicts": len(results),
-        "evaluated": total_evaluated,
-        "wins": wins,
-        "losses": losses,
-        "pending": pending,
-        "winRate": win_rate,
-        "cumulativeR": cum_r,
-        "cumulativeNetPct": round(cum_net_pct, 2),
-        "history": list(reversed(results))[:50],
+        "generatedAt": _now().isoformat(),
+        "modes": modes,
+        "history": history_display,
     }
 
 
@@ -833,10 +901,32 @@ app.add_middleware(
 # ---------------------------------------------------------------------------
 
 _refresh_task: Optional[asyncio.Task] = None
+_warm_task: Optional[asyncio.Task] = None
+
+
+async def _prewarm_all_assets(scope: str = "core") -> None:
+    """Pre-fetch snapshots for all (or core) assets so the cache is populated.
+
+    Uses normal TTL: if an asset's cache is fresh it's a no-op. If stale
+    or missing, this triggers the scraper + AI insight generation in the
+    background, leaving the system ready for the next visitor.
+    """
+    asset_ids = list(ASSET_MAP.keys())
+    if scope == "core":
+        asset_ids = [k for k, v in ASSET_MAP.items() if v.get("core")]
+    logger.info("Pre-warm started for %d assets (scope=%s)", len(asset_ids), scope)
+    for aid in asset_ids:
+        try:
+            await _fetch_snapshot(aid, lang="it")
+            await asyncio.sleep(0.5)  # gentle pacing to avoid rate limits
+        except Exception as e:  # noqa: BLE001
+            logger.warning("pre-warm failed for %s: %s", aid, e)
+    logger.info("Pre-warm completed (%d assets)", len(asset_ids))
 
 
 async def _saturday_refresh_loop() -> None:
-    """Every Saturday at 22:00 UTC clear caches so next request returns fresh data."""
+    """Every Saturday at 22:00 UTC clear caches AND pre-warm so users on
+    Sunday morning find fresh data already loaded."""
     while True:
         try:
             now = _now()
@@ -848,9 +938,12 @@ async def _saturday_refresh_loop() -> None:
             wait_seconds = (target - now).total_seconds()
             logger.info("Next COT cache refresh in %.1f hours (%s)", wait_seconds / 3600, target.isoformat())
             await asyncio.sleep(wait_seconds)
-            logger.info("Saturday refresh: clearing COT cache")
+            logger.info("Saturday refresh: clearing snapshot caches & re-warming")
             await db[CACHE_COLL].delete_many({})
-            await db[HISTORY_COLL].delete_many({})
+            await db[MACRO_COLL].delete_many({})
+            await db[VERDICT_COLL].delete_many({})
+            # Pre-warm so next visitor gets data instantly
+            await _prewarm_all_assets(scope="all")
         except asyncio.CancelledError:
             raise
         except Exception as e:  # noqa: BLE001
@@ -860,12 +953,16 @@ async def _saturday_refresh_loop() -> None:
 
 @app.on_event("startup")
 async def on_startup() -> None:
-    global _refresh_task
+    global _refresh_task, _warm_task
     _refresh_task = asyncio.create_task(_saturday_refresh_loop())
+    # Initial pre-warm on startup so the very first visit (e.g. after a
+    # cold-start on Render free tier) finds populated data within ~1 min.
+    _warm_task = asyncio.create_task(_prewarm_all_assets(scope="core"))
 
 
 @app.on_event("shutdown")
 async def on_shutdown() -> None:
-    if _refresh_task:
-        _refresh_task.cancel()
+    for task in (_refresh_task, _warm_task):
+        if task:
+            task.cancel()
     client.close()

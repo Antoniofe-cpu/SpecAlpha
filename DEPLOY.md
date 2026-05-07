@@ -110,7 +110,35 @@ Scegli un nome repo (es. `speculative-alpha`). Verifica che il push sia andato a
 
 ---
 
-## STEP 7 — Verifica finale
+## STEP 7 — Mantieni il backend "warm" e i dati sempre freschi
+
+Su Render free tier il backend va in sleep dopo 15 min. Con un cron esterno gratuito eviti il cold-start E forzi il refresh dei dati ogni X minuti.
+
+### Configurazione cron-job.org (gratis)
+1. Vai su https://cron-job.org/en/signup → registrati gratis
+2. **Cronjobs** → **CREATE CRONJOB**
+3. Configura:
+   - **Title**: `Speculative Alpha — keep warm`
+   - **URL**: `https://speculative-alpha-backend.onrender.com/api/cron/warm`
+   - **Schedule**: ogni **10 minuti** (per mantenere il backend sveglio)
+   - **Notify on failure**: ON
+4. Salva. Il backend riceverà un ping ogni 10 min e:
+   - Non andrà mai in sleep
+   - Il pre-warm interno aggiorna gli asset stale automaticamente
+   - I nuovi report COT del sabato vengono prelevati appena disponibili
+
+### Schedule alternativi consigliati
+- **Solo refresh weekly** (se accetti cold-start): un cron job singolo ogni **sabato alle 23:00 UTC**
+- **Risparmio aggressivo**: ogni **30 minuti** (ancora abbastanza per evitare sleep su Render free)
+
+### Endpoint disponibili
+- `GET/POST /api/cron/warm` → triggera pre-warm asincrono di tutti gli asset
+- `POST /api/cot/refresh` → svuota cache snapshot (manuale, non cancella la cronologia)
+- `GET /api/health` → health check
+
+---
+
+## STEP 8 — Verifica finale
 
 Apri https://speculativealpha.com in incognito:
 - ✅ La dashboard carica
