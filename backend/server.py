@@ -46,8 +46,8 @@ from price_scraper import (
 )
 from options_scraper import get_options_analytics, OPTIONS_MAP
 from sentiment_calculator import calculate_sentiment_from_cot, calculate_sentiment_history
-from fear_greed_scraper import get_retail_sentiment, fetch_fear_greed_index
-from retail_sentiment_scraper import fetch_fxssi_sentiment, fetch_vix_fear_gauge
+from tradingview_scraper import fetch_tradingview_sentiment
+from fear_greed_scraper import get_retail_sentiment
 from price_scraper import fetch_daily_closes, YAHOO_SYMBOL
 
 ROOT_DIR = Path(__file__).parent
@@ -582,74 +582,70 @@ async def _options_with_underlying(asset_id: str) -> Optional[Dict[str, Any]]:
 
 
 # ---------------------------------------------------------------------------
-# Sentiment Calculator (COT + Retail Sentiment + Yahoo Finance Prices)
-# CONTRARIAN STRATEGY: Trade AGAINST retail crowd
+# Sentiment Calculator (TradingView Technical + Fear & Greed + Yahoo Finance Prices)
+# CONTRARIAN STRATEGY: Trade AGAINST crowd when overextended
 # ---------------------------------------------------------------------------
 @api.get("/sentiment/{asset_id}")
 async def get_sentiment(asset_id: str) -> Dict[str, Any]:
-    """Calculate market sentiment from COT + retail sentiment (Fear & Greed, FXSSI, VIX).
+    """Calculate market sentiment from TradingView technical analysis + Fear & Greed (crypto).
+    
+    PRIMARY SOURCE: TradingView Technical Analysis (26 indicators aggregated)
+    - Works for ALL asset classes: forex, indices, commodities, crypto
+    - Real-time technical sentiment
     
     CONTRARIAN LOGIC:
-    - High retail long % (>70%) = SELL signal
-    - Low retail long % (<30%) = BUY signal
-    - Institutional COT still provided for reference
+    - Technical >80% bullish → SELL (overextended)
+    - Technical <20% bullish → BUY (oversold)
+    - 40-60% → NEUTRAL
     
-    Returns sentiment score, interpretation, contrarian signals, and Yahoo Finance prices.
+    Returns sentiment, contrarian signals, and Yahoo Finance prices.
     """
     asset_id = asset_id.upper()
     if asset_id not in ASSET_MAP:
         raise HTTPException(status_code=404, detail="Unknown asset")
     
-    # Get current COT snapshot (institutional positioning)
-    cot_snap = await get_cached(asset_id)
-    if cot_snap is None:
-        cot_snap = await _fetch_snapshot(asset_id)
+    # Try TradingView technical sentiment first (works for ALL assets)
+    retail_sentiment = await fetch_tradingview_sentiment(asset_id)
     
-    # Calculate institutional sentiment from COT
-    institutional_sentiment = calculate_sentiment_from_cot(cot_snap)
-    institutional_sentiment["source"] = "COT Institutional"
-    
-    # Try to get RETAIL sentiment (priority order):
-    retail_sentiment = None
-    
-    # 1. For crypto: Fear & Greed Index
-    if asset_id in {"BTC", "ETH"}:
+    # Fallback to Fear & Greed for crypto if TradingView fails
+    if not retail_sentiment and asset_id in {"BTC", "ETH"}:
         retail_sentiment = await get_retail_sentiment(asset_id)
     
-    # 2. For indices: VIX fear gauge
-    elif asset_id in {"SP500", "NAS100", "DOW", "RUSSELL"}:
-        vix_data = await fetch_vix_fear_gauge()
-        if vix_data:
-            retail_sentiment = vix_data
-    
-    # 3. For forex/commodities: FXSSI retail positioning
-    elif asset_id in {"EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF", "NZDUSD", "GOLD", "SILVER", "OIL"}:
-        retail_sentiment = await fetch_fxssi_sentiment(asset_id)
-    
-    # Build response with BOTH institutional and retail
-    current_sentiment = {
-        "institutional": institutional_sentiment,
-        "retail": retail_sentiment if retail_sentiment else {
-            "source": "Not Available",
-            "message": "Retail sentiment not available for this asset"
-        }
-    }
-    
-    # For backward compatibility, use retail if available, otherwise COT
+    # Build response
     if retail_sentiment:
-        current_sentiment["score"] = institutional_sentiment["score"]  # Keep COT score
-        current_sentiment["interpretation"] = institutional_sentiment["interpretation"]
-        current_sentiment["color"] = institutional_sentiment["color"]
-        current_sentiment["longPercentage"] = retail_sentiment["longPercentage"]
-        current_sentiment["shortPercentage"] = retail_sentiment["shortPercentage"]
-        current_sentiment["source"] = retail_sentiment["source"]
-        current_sentiment["contrarian"] = retail_sentiment.get("contrarian", {})
+        current_sentiment = {
+            "longPercentage": retail_sentiment["longPercentage"],
+            "shortPercentage": retail_sentiment["shortPercentage"],
+            "source": retail_sentiment["source"],
+            "classification": retail_sentiment.get("classification", "Unknown"),
+            "contrarian": retail_sentiment.get("contrarian", {}),
+            "components": retail_sentiment.get("components", {}),
+        }
     else:
-        current_sentiment.update(institutional_sentiment)
+        # Ultimate fallback: COT if nothing else works
+        cot_snap = await get_cached(asset_id)
+        if cot_snap is None:
+            cot_snap = await _fetch_snapshot(asset_id)
+        
+        cot_sentiment = calculate_sentiment_from_cot(cot_snap)
+        current_sentiment = {
+            "longPercentage": cot_sentiment["longPercentage"],
+            "shortPercentage": cot_sentiment["shortPercentage"],
+            "source": "COT Institutional (fallback)",
+            "classification": cot_sentiment["interpretation"],
+            "contrarian": {
+                "signal": "NEUTRAL",
+                "strength": "None",
+                "logic": "COT is institutional data, not retail"
+            }
+        }
     
-    # Get historical data for sentiment trend (COT based)
-    history = await cot_history(asset_id, limit=12)
-    sentiment_history = calculate_sentiment_history(history)
+    # Get historical data for sentiment trend (COT based for consistency)
+    try:
+        history = await cot_history(asset_id, limit=12)
+        sentiment_history = calculate_sentiment_history(history)
+    except:
+        sentiment_history = []
     
     # Get price history from Yahoo Finance (90 days)
     price_history = None
@@ -674,9 +670,8 @@ async def get_sentiment(asset_id: str) -> Dict[str, Any]:
         "current": current_sentiment,
         "history": sentiment_history,
         "priceHistory": price_history,
-        "reportDate": cot_snap.get("reportDate"),
         "strategy": "contrarian",
-        "note": "Trade AGAINST retail crowd: >70% long = SELL, <30% long = BUY"
+        "contrarian_note": "Trade AGAINST crowd: >70% long = SELL, <30% long = BUY"
     }
 
 

@@ -1,5 +1,5 @@
-import React from 'react';
-import { TrendingUp, TrendingDown, Activity } from 'lucide-react';
+import React, { useState } from 'react';
+import { TrendingUp, TrendingDown, Activity, Info, X } from 'lucide-react';
 import { ComposedChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine } from 'recharts';
 import { cn } from '../utils';
 
@@ -7,6 +7,8 @@ import { cn } from '../utils';
  * SentimentGauge - Market sentiment with dual-axis chart
  */
 export default function SentimentGauge({ data, loading, error }) {
+    const [showInfo, setShowInfo] = useState(false);
+    
     if (loading) {
         return (
             <div className="bg-gradient-to-br from-[#0e0e14] to-[#1a1a24] border border-white/[0.08] rounded-3xl p-6 shadow-2xl">
@@ -97,6 +99,14 @@ export default function SentimentGauge({ data, loading, error }) {
                     <h3 className="text-[12px] uppercase tracking-[0.26em] font-bold text-gray-300">
                         Market Sentiment
                     </h3>
+                    {/* Info button for contrarian strategy */}
+                    <button
+                        onClick={() => setShowInfo(!showInfo)}
+                        className="p-1.5 rounded-lg bg-blue-500/10 border border-blue-500/20 hover:bg-blue-500/20 transition-colors"
+                        title="Contrarian Strategy Info"
+                    >
+                        <Info size={14} className="text-blue-400" />
+                    </button>
                 </div>
                 <div className={cn(
                     'flex items-center gap-2 px-3 py-1.5 rounded-full border text-[11px] uppercase tracking-wider font-bold shadow-lg',
@@ -110,6 +120,66 @@ export default function SentimentGauge({ data, loading, error }) {
                     {interpretation}
                 </div>
             </div>
+
+            {/* Contrarian Strategy Info Panel */}
+            {showInfo && (
+                <div className="mb-5 bg-gradient-to-br from-blue-500/10 to-purple-500/10 border border-blue-500/20 rounded-2xl p-4 backdrop-blur-sm">
+                    <div className="flex items-start justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                            <Info size={16} className="text-blue-400 mt-0.5" />
+                            <h4 className="text-[13px] font-bold text-blue-300 uppercase tracking-wider">
+                                Strategia Contrarian
+                            </h4>
+                        </div>
+                        <button
+                            onClick={() => setShowInfo(false)}
+                            className="p-1 rounded-lg hover:bg-white/10 transition-colors"
+                        >
+                            <X size={14} className="text-gray-400" />
+                        </button>
+                    </div>
+                    
+                    <div className="space-y-3 text-[11px] text-gray-300">
+                        <div className="flex items-start gap-2">
+                            <div className="mt-1 w-2 h-2 rounded-full bg-red-400 flex-shrink-0" />
+                            <div>
+                                <strong className="text-red-300">Long &gt;70%</strong> → <strong className="text-red-300">SELL Signal</strong>
+                                <p className="text-gray-400 mt-0.5">Crowd overextended long = smart money inizia a vendere</p>
+                            </div>
+                        </div>
+                        
+                        <div className="flex items-start gap-2">
+                            <div className="mt-1 w-2 h-2 rounded-full bg-green-400 flex-shrink-0" />
+                            <div>
+                                <strong className="text-green-300">Long &lt;30%</strong> → <strong className="text-green-300">BUY Signal</strong>
+                                <p className="text-gray-400 mt-0.5">Crowd capitulated = smart money accumula</p>
+                            </div>
+                        </div>
+                        
+                        <div className="flex items-start gap-2">
+                            <div className="mt-1 w-2 h-2 rounded-full bg-gray-400 flex-shrink-0" />
+                            <div>
+                                <strong className="text-gray-300">40-60%</strong> → <strong className="text-gray-300">NEUTRAL</strong>
+                                <p className="text-gray-400 mt-0.5">Equilibrio = usa altri indicatori</p>
+                            </div>
+                        </div>
+                        
+                        <div className="mt-3 pt-3 border-t border-white/10">
+                            <p className="text-yellow-300 font-semibold mb-1">⚠️ Best Practices:</p>
+                            <ul className="space-y-1 text-gray-400">
+                                <li>• Combina con analisi tecnica (supporti/resistenze)</li>
+                                <li>• Aspetta conferma prima di entrare</li>
+                                <li>• Non tradare durante notizie major (Fed, earnings)</li>
+                                <li>• Funziona meglio su timeframe daily+</li>
+                            </ul>
+                        </div>
+                        
+                        <div className="mt-3 pt-3 border-t border-white/10 text-[10px] text-gray-500">
+                            Fonte: TradingView Technical Analysis (26 indicatori aggregati)
+                        </div>
+                    </div>
+                </div>
+            )}
 
             <div className="grid grid-cols-[auto_1fr] gap-8">
                 {/* Left: Gauge */}
