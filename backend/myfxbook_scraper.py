@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 from typing import Dict, Any, Optional, List
+from urllib.parse import unquote
 import httpx
 import os
 
@@ -36,9 +37,9 @@ async def _get_myfxbook_session() -> Optional[str]:
     
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
+            response = await client.get(
                 "https://www.myfxbook.com/api/login.json",
-                data={"email": email, "password": password}
+                params={"email": email, "password": password}
             )
             
             if response.status_code != 200:
@@ -53,6 +54,8 @@ async def _get_myfxbook_session() -> Optional[str]:
             
             session_id = data.get("session")
             if session_id:
+                # MyFxBook returns URL-encoded session token; decode it to avoid double-encoding
+                session_id = unquote(session_id)
                 _myfxbook_session_id = session_id
                 logger.info("MyFxBook session created successfully")
                 return session_id

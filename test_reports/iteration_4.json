@@ -1,0 +1,45 @@
+{
+  "summary": "Iteration 4 — Backend 21/21 PASS for the new MyFxBook contrarian sentiment + crowdLabel feature and regression endpoints. Verified GET /api/sentiment/{asset_id} for EURUSD, GBPUSD, GOLD, BTC, USDJPY, AUDUSD, USDCAD: every response uses source='MyFxBook Real Accounts', longPercentage+shortPercentage~=100, score follows inverted/contrarian formula score=(50-long_pct)*2 within rounding, score sign aligns with contrarian action (long>=60 → score<0; long<=40 → score>0), contrarian.signal correct (SELL when long_pct>=60, BUY when long_pct<=40, NEUTRAL otherwise), and crowdLabel correctly maps Bullish/Bearish/Mixed Crowd. priceHistory is populated from Yahoo Finance with 66 daily entries for all 7 assets (>=30 required). history (COT-based weekly sentiment trend) returns 12 weekly entries. Regression: /api/options/SP500 and /api/options/GOLD return full GEX payload (gexBars, callWall, putWall, maxPain, netGex, etc.), /api/cot/EURUSD returns valid snapshot, /api/verdict/EURUSD returns 200 (calc fallback as Gemini is rate-limited — expected). Frontend smoke test on EURUSD card: detail modal opens, SentimentGauge renders Contrarian Score +36, contrarian-signal-badge='BUY · Weak', crowd-label-badge='Crowd: Bearish Crowd', dual-line Recharts chart with price+sentiment axes both visible. Note: the user's review request mentioned route /api/final-verdict and asset SPX which do not exist — actual route is /api/verdict and the SP500 asset id maps to SPY in OPTIONS_MAP; tests adjusted accordingly.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "SentimentGauge dual-line chart (asset detail modal)", "issues": [
+        "X-axis date labels overlap/crowd at narrow widths (e.g. 04/13 04/15 04/19 stacked tightly). Consider XAxis interval='preserveStartEnd' or angle=-30.",
+        "Sparse rendering: SentimentGauge.jsx merges weekly COT sentiment (12 pts) with daily Yahoo prices (66 pts) into one Set, then slices the last 50. This leaves the price line concentrated on the right and the sentiment line as 12 isolated dots. Consider plotting price on its own continuous line (don't gap-fill with weekly-only dates) or interpolating sentiment between weekly points so both lines visually span the full window.",
+        "Recharts emits 4 console warnings 'width(-1) height(-1)' during initial mount (gauge container measures before layout settles). Cosmetic but noisy."
+      ]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_sentiment_api.py",
+    "/app/test_reports/pytest/iter4_results.xml"
+  ],
+  "action_items": [
+    "(Cosmetic) Improve dual-line chart in SentimentGauge.jsx: avoid date-set union that creates sparse points; render price as its own continuous series using priceHistory directly, and overlay sentiment markers on the same x-domain. Also configure XAxis to dedupe overlapping date ticks.",
+    "(Carry-over from iteration 3, still open) Increase axios timeout for /cot/bulk to 60-90s OR pre-warm cache to avoid the cold-start 'Errore nel caricamento dati' banner flash."
+  ],
+  "critical_code_review_comments": [
+    "server.py lines 622 score formula (50-long_pct)*2 is correctly inverted/contrarian and matches the user's requested choice 2b — verified in tests.",
+    "server.py line 711 wraps cot_history+calculate_sentiment_history in a bare 'except:' which silently swallows ALL errors (including KeyboardInterrupt). Replace with 'except Exception as e: logger.warning(...)' to aid debugging.",
+    "server.py lines 707-712: when COT history fails, sentiment_history is set to []; the chart then renders only price → consider returning a status flag so the UI can show 'Sentiment trend unavailable'.",
+    "myfxbook_scraper.py: unquote() on the URL-encoded session is the correct fix; httpx params re-encodes already-encoded characters causing 'Invalid Session' on subsequent calls. Good defensive fix.",
+    "SentimentGauge.jsx line 65-70 merges weekly+daily dates into a Set then slices last 50 — see design_issues; the union approach is the root cause of the visual sparsity.",
+    "Backend: GET /api/sentiment uses asset-by-asset MyFxBook fetch — for first cold call across 7 assets each request can take ~1-2s. Consider a /api/sentiment/bulk endpoint for the dashboard view.",
+    "options_scraper.py OPTIONS_MAP does NOT contain 'SPX' (uses 'SP500' → SPY proxy). Review request mentioned 'SPX' — confirm with user that SP500 is the intended asset id."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_sentiment_api.py (NEW: 21 tests covering MyFxBook sentiment, crowdLabel, contrarian formula, priceHistory, history, options regression, COT regression, verdict regression)"
+  ],
+  "success_rate": {"backend": "100% (21/21)", "frontend": "100% (smoke test all selectors found)"},
+  "test_credentials": "N/A — no auth in app. MyFxBook backend creds in /app/backend/.env work correctly.",
+  "seed_data_creation": "None — live data from MyFxBook + Yahoo Finance + tradingster + Alpha Vantage.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Re-run with: cd /app/backend && REACT_APP_BACKEND_URL=<url> pytest tests/test_sentiment_api.py tests/test_cot_api.py -v --junitxml=/app/test_reports/pytest/iterN_results.xml. Sentiment tests assert formula score=(50-long_pct)*2 ±1.5 tolerance, source must equal 'MyFxBook Real Accounts'. Real route for verdict is /api/verdict/{asset_id} (NOT /api/final-verdict). Options uses asset id 'SP500' (NOT 'SPX'). Frontend selectors: [data-testid='asset-card-EURUSD'], [data-testid='contrarian-signal-badge'], [data-testid='crowd-label-badge']. Sample EURUSD response captured: long=32%, short=68%, score=+36, signal=BUY/Weak, crowdLabel='Bearish Crowd'.",
+  "rca of the issue": "All 7 review request features verified working end-to-end. MyFxBook auth fix (unquote of session token) confirmed via 7/7 successful real-account fetches. Inverted contrarian score formula validated mathematically against parametrized assertion in test_sentiment_myfxbook_real. Frontend SentimentGauge component renders all three new UI elements (contrarian-signal-badge, crowd-label-badge, dual-line chart) correctly. Only carry-over and cosmetic items remain — no blocking bugs."
+}

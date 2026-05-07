@@ -615,13 +615,13 @@ async def get_sentiment(asset_id: str) -> Dict[str, Any]:
         long_pct = retail_positioning["longPercentage"]
         short_pct = retail_positioning["shortPercentage"]
         
-        # Calculate sentiment score from positioning (NO INVERSION - show crowd sentiment)
-        # Score = (long% - 50) * 2 → Range -100 to +100
-        # 75% long → +50 score (bullish crowd)
-        # 25% long → -50 score (bearish crowd)
-        score = (long_pct - 50) * 2
+        # CONTRARIAN SCORE: inverted from crowd positioning
+        # Score reflects the recommended action (contrarian to retail)
+        # 75% long crowd → score -50 (bearish action / SELL)
+        # 25% long crowd → score +50 (bullish action / BUY)
+        score = (50 - long_pct) * 2
         
-        # Determine interpretation
+        # Determine interpretation (aligned with contrarian action signal)
         if score >= 70:
             interpretation = "Extremely Bullish"
             color = "#10b981"
@@ -661,12 +661,21 @@ async def get_sentiment(asset_id: str) -> Dict[str, Any]:
             signal = "NEUTRAL"
             strength = "None"
         
+        # Crowd label is informational only (raw positioning)
+        if long_pct >= 60:
+            crowd_label = "Bullish Crowd"
+        elif long_pct <= 40:
+            crowd_label = "Bearish Crowd"
+        else:
+            crowd_label = "Mixed Crowd"
+        
         current_sentiment = {
             "score": round(score, 2),
             "interpretation": interpretation,
             "color": color,
             "longPercentage": long_pct,
             "shortPercentage": short_pct,
+            "crowdLabel": crowd_label,
             "source": retail_positioning["source"],
             "contrarian": {
                 "signal": signal,

@@ -35,6 +35,8 @@ export default function SentimentGauge({ data, loading, error }) {
     const color = current.color || '#94a3b8';
     const longPct = current.longPercentage || 50;
     const shortPct = current.shortPercentage || 50;
+    const contrarian = current.contrarian || { signal: 'NEUTRAL', strength: 'None' };
+    const crowdLabel = current.crowdLabel || 'Mixed Crowd';
 
     // Gauge position
     const gaugePercent = ((score + 100) / 200) * 100;
@@ -78,15 +80,6 @@ export default function SentimentGauge({ data, loading, error }) {
     const maxPrice = prices.length > 0 ? Math.max(...prices) : 100;
     const priceRange = maxPrice - minPrice;
     const pricePadding = priceRange * 0.05;
-
-    console.log('SentimentGauge Debug:', {
-        historyLength: history?.length,
-        priceHistoryLength: priceHistory?.length,
-        displayDataLength: displayData.length,
-        sentimentsCount: sentiments.length,
-        pricesCount: prices.length,
-        sampleData: displayData.slice(0, 3)
-    });
 
     return (
         <div className="bg-gradient-to-br from-[#0e0e14] via-[#12121a] to-[#0e0e14] border border-white/[0.08] rounded-3xl p-6 shadow-2xl backdrop-blur-xl">
@@ -175,7 +168,7 @@ export default function SentimentGauge({ data, loading, error }) {
                         </div>
                         
                         <div className="mt-3 pt-3 border-t border-white/10 text-[10px] text-gray-500">
-                            Fonte: TradingView Technical Analysis (26 indicatori aggregati)
+                            Fonte: MyFxBook Community Outlook (account live verificati)
                         </div>
                     </div>
                 </div>
@@ -248,8 +241,29 @@ export default function SentimentGauge({ data, loading, error }) {
                             {score > 0 ? '+' : ''}{score}
                         </div>
                         <div className="text-[9px] text-gray-500 uppercase tracking-wider mt-1.5 font-semibold">
-                            Sentiment Score
+                            Contrarian Score
                         </div>
+                    </div>
+
+                    {/* Contrarian Action Signal */}
+                    <div
+                        data-testid="contrarian-signal-badge"
+                        className={cn(
+                            'w-full mb-2 px-3 py-2 rounded-xl border text-center font-bold text-[12px] uppercase tracking-wider',
+                            contrarian.signal === 'BUY' ? 'border-[#10b981]/40 bg-[#10b981]/15 text-[#34d399]' :
+                            contrarian.signal === 'SELL' ? 'border-[#f43f5e]/40 bg-[#f43f5e]/15 text-[#fb7185]' :
+                            'border-white/20 bg-white/5 text-gray-300'
+                        )}
+                    >
+                        {contrarian.signal} {contrarian.strength !== 'None' ? `· ${contrarian.strength}` : ''}
+                    </div>
+
+                    {/* Crowd Label */}
+                    <div
+                        data-testid="crowd-label-badge"
+                        className="w-full mb-3 px-3 py-1.5 rounded-lg border border-white/10 bg-white/[0.02] text-center text-[10px] text-gray-400 uppercase tracking-widest"
+                    >
+                        Crowd: <span className="text-gray-200 font-semibold">{crowdLabel}</span>
                     </div>
                     
                     <div className="w-full space-y-2.5">
