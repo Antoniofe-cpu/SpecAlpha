@@ -62,9 +62,43 @@ EMERGENT_LLM_KEY = os.environ.get("EMERGENT_LLM_KEY")
 # When set, takes priority over EMERGENT_LLM_KEY (which only works inside Emergent).
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+# Anthropic Claude — used as automatic fallback when Gemini fails / is rate-limited.
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
+ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-5")
 
 
 _GEMINI_LOCK = asyncio.Lock()  # serialise Gemini calls (free tier = 15 RPM)
+_CLAUDE_LOCK = asyncio.Lock()  # serialise Claude fallbacks too
+
+
+async def _claude_call(system: str, user: str) -> Optional[str]:
+    """Call Anthropic Claude as an LLM fallback. Returns text or None."""
+    if not ANTHROPIC_API_KEY:
+        return None
+    try:
+        from anthropic import Anthropic  # type: ignore
+    except Exception as e:  # noqa: BLE001
+        logger.warning("anthropic import failed: %s", e)
+        return None
+
+    def _sync_call() -> str:
+        client_a = Anthropic(api_key=ANTHROPIC_API_KEY, timeout=30.0)
+        msg = client_a.messages.create(
+            model=ANTHROPIC_MODEL,
+            max_tokens=400,
+            system=system,
+            messages=[{"role": "user", "content": user}],
+        )
+        if msg.content and len(msg.content) > 0:
+            return (getattr(msg.content[0], "text", "") or "").strip()
+        return ""
+
+    async with _CLAUDE_LOCK:
+        try:
+            return await asyncio.to_thread(_sync_call)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Claude call failed: %s", str(e)[:200])
+            return None
 
 
 async def _gemini_direct_call(system: str, user: str, max_retries: int = 0) -> Optional[str]:
@@ -110,6 +144,19 @@ async def _gemini_direct_call(system: str, user: str, max_retries: int = 0) -> O
                 await asyncio.sleep(2)
                 attempt += 1
         return None
+
+
+async def _ai_text(system: str, user: str) -> Optional[str]:
+    """Unified AI call: try Gemini first, then Claude, then None.
+
+    This is the single entrypoint used by every AI generator in the app
+    so that any rate-limit / outage on the primary provider transparently
+    routes through the fallback.
+    """
+    primary = await _gemini_direct_call(system, user)
+    if primary:
+        return primary
+    return await _claude_call(system, user)
 
 # ---------------------------------------------------------------------------
 # AI Insight (Gemini via emergentintegrations)
@@ -174,11 +221,11 @@ async def generate_macro_insight(asset_id: str, snapshot: Dict[str, Any], lang: 
             "Sintetizza posizionamento, momentum settimanale e implicazioni operative. Solo italiano."
         )
 
-    if not EMERGENT_LLM_KEY and not GEMINI_API_KEY:
+    if not EMERGENT_LLM_KEY and not GEMINI_API_KEY and not ANTHROPIC_API_KEY:
         return fallback, True
 
-    # Priority 1: Direct Gemini API (works in any deployment)
-    direct = await _gemini_direct_call(system, prompt_tpl)
+    # Priority 1: Gemini → Claude unified call (works in any deployment)
+    direct = await _ai_text(system, prompt_tpl)
     if direct:
         text = direct.strip().strip('"').strip("'")
         if len(text) > 10:
@@ -518,7 +565,7 @@ async def options_analytics(asset_id: str, refresh: bool = Query(False)) -> Dict
                 except ValueError:
                     pass
 
-    result = await get_options_analytics(asset_id)
+    result = await _options_with_underlying(asset_id)
     if not result:
         raise HTTPException(status_code=503, detail="Options chain unavailable")
 
@@ -528,6 +575,25 @@ async def options_analytics(asset_id: str, refresh: bool = Query(False)) -> Dict
         upsert=True,
     )
     return result
+
+
+async def _options_with_underlying(asset_id: str) -> Optional[Dict[str, Any]]:
+    """Wrapper that fetches the real underlying spot (futures `=F` or FX `=X`)
+    and passes it to the options analytics so the UI can show recognisable
+    prices (e.g. real S&P 500 / Gold / EUR/USD) next to the ETF-derived chain.
+    """
+    underlying_spot: Optional[float] = None
+    if asset_id in YAHOO_SYMBOL:
+        try:
+            today = _now()
+            ohlc = await fetch_daily_ohlc(asset_id, today - timedelta(days=7), today + timedelta(days=1))
+            if ohlc:
+                # Pick the most recent close
+                latest_date = max(ohlc.keys())
+                underlying_spot = ohlc[latest_date].get("close")
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Failed to fetch underlying spot for %s: %s", asset_id, e)
+    return await get_options_analytics(asset_id, underlying_spot=underlying_spot)
 
 
 # ---------------------------------------------------------------------------
@@ -550,11 +616,11 @@ async def _get_calendar_events():
 
 
 async def _llm_generate(system: str, user: str, session: str, fallback: str) -> str:
-    if not EMERGENT_LLM_KEY and not GEMINI_API_KEY:
+    if not EMERGENT_LLM_KEY and not GEMINI_API_KEY and not ANTHROPIC_API_KEY:
         return fallback
 
-    # Priority 1: Direct Gemini API (works in any deployment)
-    direct = await _gemini_direct_call(system, user)
+    # Priority 1: Gemini → Claude unified call (works in any deployment)
+    direct = await _ai_text(system, user)
     if direct:
         return direct
 
@@ -1093,7 +1159,7 @@ async def _prewarm_options() -> None:
                     except ValueError:
                         pass
             if stale:
-                result = await get_options_analytics(aid)
+                result = await _options_with_underlying(aid)
                 if result:
                     await db[OPTIONS_COLL].update_one(
                         {"_id": aid},

@@ -131,7 +131,21 @@
 - P2: Email/Telegram alerts on extreme divergence
 - P2: Multi-language toggle (IT/EN)
 
-## Latest Session (Feb 2026) — Round 10 (PDF + UX fixes + AI quota)
+## Latest Session (Feb 2026) — Round 11 (Phantom +, AI cache stable, CME Options, Claude fallback, real prices)
+- **Phantom "+" card** inline in the asset grid (only on Core scope) → click switches scope to `all`. Replaces the previous "soft cue" pill.
+- **Permanent AI insight cache** keyed on `(kind, asset, reportDate, lang)` in new `ai_insight_cache` MongoDB collection. COT Intelligence / Macro Sentiment / Final Verdict are now generated **once per report** and reused forever; only a new COT report (different `reportDate`) triggers regeneration. Fallback strings are NEVER persisted.
+- **Options & GEX panel** above Historical Chart in modal. New backend module `/app/backend/options_scraper.py`:
+  - Indices + commodities (`kind: full`): Max Pain, Call Wall, Put Wall, Net GEX, Gamma Flip, PCR OI, GEX bar chart per strike with Spot + Max Pain reference lines. Uses Black-Scholes gamma for true GEX computation.
+  - Currencies / VIX / BTC (`kind: skew`): ATM IV, 25Δ Risk Reversal proxy, OTM call IV vs OTM put IV breakdown, bullish/bearish/neutral interpretation.
+  - Source: Yahoo Finance options chain via `yfinance` (CME blocks scraping; ETF proxies SPY/QQQ/GLD/USO/FXE/etc. used for options chain).
+  - **Real underlying prices**: backend now also fetches the futures `=F` / forex `=X` spot from Yahoo and attaches `underlyingSpot` + `underlyingMultiplier` so the UI displays recognisable prices (S&P 500 = 7333, EUR/USD = 1.1755, Gold = 4716) alongside the ETF-derived strikes (auto-converted to underlying-equivalent: max pain on SP500 → 7273, not SPY 725).
+  - Cached weekly per asset, key invalidates automatically when the option expiry rolls. Saturday refresh loop now also wipes options cache and pre-warms.
+- **Claude Sonnet 4.5 fallback** for AI insights:
+  - New `_claude_call` + unified `_ai_text(system, user)` entrypoint: tries Gemini → Claude → None.
+  - All AI generators (`generate_macro_insight`, `_llm_generate` used by macro_sentiment & verdict) now go through `_ai_text`, so any Gemini 429 transparently routes to Claude.
+  - Backend `.env` now reads `ANTHROPIC_API_KEY` (user-provided) and optional `ANTHROPIC_MODEL` (default `claude-sonnet-4-5`).
+  - Note: at the time of writing both Gemini (free tier exhausted) AND the Anthropic key (no credit) are blocked → AI insights still fall back to the deterministic template until the user tops up at least one provider.
+
 - **PDF Export overhauled**:
   - Removed bug in footer loop that overwrote pages 2+ background, erasing content (caused "blank pages").
   - Macro Sentiment panel now auto-sizes and includes up to 5 macro news events (country · date · event · prev) — previously news were dropped.

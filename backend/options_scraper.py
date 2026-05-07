@@ -376,8 +376,14 @@ def compute_skew(chain: Dict[str, Any]) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Top-level entrypoint
 # ---------------------------------------------------------------------------
-async def get_options_analytics(asset_id: str) -> Optional[Dict[str, Any]]:
-    """Fetch + analyse options for an asset. Returns None if unsupported / failed."""
+async def get_options_analytics(asset_id: str, underlying_spot: Optional[float] = None) -> Optional[Dict[str, Any]]:
+    """Fetch + analyse options for an asset. Returns None if unsupported / failed.
+
+    `underlying_spot` is the real futures/FX price (e.g. S&P 500 = 5800,
+    EUR/USD = 1.085). When provided, we add `underlyingSpot` plus a strike
+    multiplier so the UI can display recognisable prices alongside the
+    ETF-derived strikes.
+    """
     cfg = OPTIONS_MAP.get(asset_id)
     if not cfg:
         return None
@@ -391,4 +397,13 @@ async def get_options_analytics(asset_id: str) -> Optional[Dict[str, Any]]:
         out = compute_skew(chain)
     out["assetLabel"] = cfg["label"]
     out["fetchedAt"] = datetime.now(timezone.utc).isoformat()
+    # Attach the real underlying price so the UI can display "S&P 500 = 5800"
+    # next to the ETF spot. Multiplier converts ETF strikes to underlying-equivalent.
+    if underlying_spot and chain.get("spot"):
+        try:
+            mult = float(underlying_spot) / float(chain["spot"])
+            out["underlyingSpot"] = round(float(underlying_spot), 4)
+            out["underlyingMultiplier"] = round(mult, 4)
+        except (TypeError, ValueError, ZeroDivisionError):
+            pass
     return out

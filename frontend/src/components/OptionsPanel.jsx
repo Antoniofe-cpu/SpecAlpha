@@ -67,6 +67,15 @@ function GexTooltip({ active, payload, t }) {
 
 function FullPanel({ data, t }) {
     const spot = data.spot;
+    const u = data.underlyingSpot;
+    const mult = data.underlyingMultiplier;
+    const fmtUnderlying = (v) =>
+        v == null
+            ? '—'
+            : Math.abs(v) >= 100
+            ? v.toLocaleString('en-US', { maximumFractionDigits: 2 })
+            : v.toLocaleString('en-US', { maximumFractionDigits: 4 });
+    const toUnderlying = (k) => (mult && k != null ? k * mult : null);
     const bars = (data.gexBars || []).map((r) => ({
         ...r,
         absNet: Math.abs(r.netGex),
@@ -83,28 +92,40 @@ function FullPanel({ data, t }) {
                 <StatPill
                     testId="opt-spot"
                     label={t('options.spot')}
-                    value={spot != null ? spot.toLocaleString('en-US', { maximumFractionDigits: 2 }) : '—'}
-                    sub={`${data.symbol} · ${data.expiry}`}
+                    value={u != null ? fmtUnderlying(u) : (spot != null ? spot.toLocaleString('en-US', { maximumFractionDigits: 2 }) : '—')}
+                    sub={u != null ? `${data.symbol} ${spot} · ${data.expiry}` : `${data.symbol} · ${data.expiry}`}
                     accent="sky"
                 />
                 <StatPill
                     testId="opt-maxpain"
                     label={t('options.max_pain')}
-                    value={data.maxPain != null ? data.maxPain.toLocaleString('en-US', { maximumFractionDigits: 2 }) : '—'}
+                    value={
+                        toUnderlying(data.maxPain) != null
+                            ? fmtUnderlying(toUnderlying(data.maxPain))
+                            : (data.maxPain != null ? data.maxPain.toLocaleString('en-US', { maximumFractionDigits: 2 }) : '—')
+                    }
                     sub={spot && data.maxPain ? `Δ ${(((data.maxPain - spot) / spot) * 100).toFixed(2)}%` : ''}
                     accent="amber"
                 />
                 <StatPill
                     testId="opt-callwall"
                     label={t('options.call_wall')}
-                    value={data.callWall != null ? data.callWall.toLocaleString('en-US', { maximumFractionDigits: 2 }) : '—'}
+                    value={
+                        toUnderlying(data.callWall) != null
+                            ? fmtUnderlying(toUnderlying(data.callWall))
+                            : (data.callWall != null ? data.callWall.toLocaleString('en-US', { maximumFractionDigits: 2 }) : '—')
+                    }
                     sub={t('options.call_wall_sub')}
                     accent="green"
                 />
                 <StatPill
                     testId="opt-putwall"
                     label={t('options.put_wall')}
-                    value={data.putWall != null ? data.putWall.toLocaleString('en-US', { maximumFractionDigits: 2 }) : '—'}
+                    value={
+                        toUnderlying(data.putWall) != null
+                            ? fmtUnderlying(toUnderlying(data.putWall))
+                            : (data.putWall != null ? data.putWall.toLocaleString('en-US', { maximumFractionDigits: 2 }) : '—')
+                    }
                     sub={t('options.put_wall_sub')}
                     accent="red"
                 />
@@ -220,6 +241,13 @@ function FullPanel({ data, t }) {
 }
 
 function SkewPanel({ data, t }) {
+    const u = data.underlyingSpot;
+    const fmtSpot = (v) =>
+        v == null
+            ? '—'
+            : Math.abs(v) >= 100
+            ? v.toLocaleString('en-US', { maximumFractionDigits: 2 })
+            : v.toLocaleString('en-US', { maximumFractionDigits: 4 });
     const rr = data.rr;
     const interp = data.interpretation;
     const accent = interp === 'bullish_skew' ? 'green' : interp === 'bearish_skew' ? 'red' : 'gray';
@@ -239,8 +267,8 @@ function SkewPanel({ data, t }) {
                 <StatPill
                     testId="opt-spot"
                     label={t('options.spot')}
-                    value={data.spot != null ? data.spot.toLocaleString('en-US', { maximumFractionDigits: 4 }) : '—'}
-                    sub={`${data.symbol} · ${data.expiry}`}
+                    value={u != null ? fmtSpot(u) : (data.spot != null ? data.spot.toLocaleString('en-US', { maximumFractionDigits: 4 }) : '—')}
+                    sub={u != null ? `${data.symbol} ${data.spot} · ${data.expiry}` : `${data.symbol} · ${data.expiry}`}
                     accent="sky"
                 />
                 <StatPill
