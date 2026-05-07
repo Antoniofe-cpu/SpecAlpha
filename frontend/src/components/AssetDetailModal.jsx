@@ -185,7 +185,7 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                 if (y + need > H - 16) {
                     pdf.addPage();
                     fillPage();
-                    y = M;
+                    y = M + 4; // leave space for the mini-header band drawn in footer pass
                 }
             };
 
@@ -231,9 +231,10 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
 
             y = 38;
 
-            // ---------- Top row: 3 panels (Sentiment | Net Position | Macro Insight) ----------
+            // ---------- Top row: 3 panels (Sentiment | Net Position | COT Intelligence) ----------
             const colW = (W - M * 2 - 4 * 2) / 3;
-            const topPanelH = 38;
+            // Increase panel height so longer COT Intelligence text wraps cleanly
+            const topPanelH = 50;
             const trendForPdf = getTrendAnalysis(snapshot);
 
             // Sentiment panel
@@ -280,7 +281,7 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                 x2 + 4, y + 31
             );
 
-            // Macro Intelligence panel (asset.macro)
+            // COT Intelligence panel (asset.macro)
             const x3 = M + (colW + 4) * 2;
             panel(x3, y, colW, topPanelH, [22, 18, 6], [110, 80, 0]);
             setText(AMBER);
@@ -289,15 +290,21 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
             pdf.text(t('modal.macro_intel').toUpperCase(), x3 + 4, y + 6);
             setText(TEXT);
             pdf.setFont('helvetica', 'italic');
-            pdf.setFontSize(8.5);
+            pdf.setFontSize(8);
             const macroLines = pdf.splitTextToSize(`"${snapshot.macro || '—'}"`, colW - 8);
-            pdf.text(macroLines.slice(0, 5), x3 + 4, y + 12);
+            // Render with explicit line height so wrapping is readable inside the panel
+            pdf.text(macroLines.slice(0, 9), x3 + 4, y + 12, { lineHeightFactor: 1.35 });
 
             y += topPanelH + 6;
 
-            // ---------- Macro Sentiment (full width) ----------
-            ensurePage(46);
-            const macroH = 42;
+            // ---------- Macro Sentiment (full width, dynamic height incl. events) ----------
+            const eventsList = (macro?.events || []).slice(0, 5);
+            const summaryText = macro?.summary || t('modal.macro_loading');
+            const summaryLines = pdf.splitTextToSize(summaryText, W - M * 2 - 8);
+            const summaryRowH = summaryLines.length * 4;
+            const eventsRowH = eventsList.length > 0 ? (eventsList.length * 4 + 6) : 0;
+            const macroH = Math.max(28, 14 + summaryRowH + eventsRowH);
+            ensurePage(macroH + 6);
             panel(M, y, W - M * 2, macroH);
             setText([56, 189, 248]); // sky-400
             pdf.setFont('helvetica', 'bold');
@@ -306,9 +313,36 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
             pdf.text(macroTitle, M + 4, y + 6);
             setText(TEXT);
             pdf.setFont('helvetica', 'normal');
-            pdf.setFontSize(9);
-            const ml = pdf.splitTextToSize(macro?.summary || t('modal.macro_loading'), W - M * 2 - 8);
-            pdf.text(ml.slice(0, 6), M + 4, y + 12);
+            pdf.setFontSize(8.5);
+            pdf.text(summaryLines, M + 4, y + 12, { lineHeightFactor: 1.35 });
+
+            // Render up to 5 macro events (country · date · event · prev)
+            if (eventsList.length > 0) {
+                let evY = y + 14 + summaryRowH;
+                setDraw(BORDER);
+                pdf.setLineWidth(0.15);
+                pdf.line(M + 4, evY - 2, W - M - 4, evY - 2);
+                pdf.setFont('helvetica', 'normal');
+                pdf.setFontSize(7.5);
+                eventsList.forEach((e) => {
+                    setText([56, 189, 248]);
+                    pdf.setFont('helvetica', 'bold');
+                    pdf.text(String(e.country || '—').slice(0, 4), M + 4, evY + 2);
+                    setText(MUTED);
+                    pdf.setFont('helvetica', 'normal');
+                    pdf.text(String(e.date || ''), M + 16, evY + 2);
+                    setText(TEXT);
+                    const evLabel = String(e.event || '');
+                    const evMaxW = W - M * 2 - 8 - 50;
+                    const evClipped = pdf.splitTextToSize(evLabel, evMaxW)[0] || '';
+                    pdf.text(evClipped, M + 38, evY + 2);
+                    if (e.previous) {
+                        setText(MUTED);
+                        pdf.text(`prev ${e.previous}`, W - M - 6, evY + 2, { align: 'right' });
+                    }
+                    evY += 4;
+                });
+            }
             y += macroH + 6;
 
             // ---------- Final Verdict ----------
@@ -355,7 +389,7 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
             if (history && history.length) {
                 autoTable(pdf, {
                     startY: y,
-                    margin: { left: M, right: M },
+                    margin: { left: M, right: M, top: 14 },
                     theme: 'plain',
                     styles: {
                         fontSize: 8,
@@ -490,8 +524,8 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                     { key: 'ST', label: t('modal.perf.mode_st') },
                 ];
                 const windowsToRender = [
-                    { key: 'window52w', label: t('modal.perf.window_52w') },
-                    { key: 'allTime', label: t('modal.perf.window_all') },
+                    { key: 'window12w', label: t('modal.perf.window_12w') },
+                    { key: 'window24w', label: t('modal.perf.window_24w') },
                 ];
 
                 for (const mode of modesToRender) {
@@ -571,7 +605,7 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                 y += 2;
                 autoTable(pdf, {
                     startY: y + 1,
-                    margin: { left: M, right: M },
+                    margin: { left: M, right: M, top: 14 },
                     theme: 'plain',
                     styles: {
                         fontSize: 8,
@@ -631,17 +665,14 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                 y = pdf.lastAutoTable.finalY + 6;
             }
 
-            // ---------- Footer (every page) ----------
+            // ---------- Footer (every page, NO bg overwrite — just header band + page nr) ----------
             const totalPages = pdf.internal.getNumberOfPages();
             for (let i = 1; i <= totalPages; i++) {
                 pdf.setPage(i);
-                // Re-fill background for any new pages we added
                 if (i > 1) {
-                    setFill(BG);
-                    pdf.rect(0, 0, W, H, 'F');
-                    // mini header
+                    // top mini-header band (drawn last, but small enough not to hide existing content)
                     setFill([6, 6, 9]);
-                    pdf.rect(0, 0, W, 14, 'F');
+                    pdf.rect(0, 0, W, 10, 'F');
                     setText(AMBER);
                     pdf.setFont('helvetica', 'bold');
                     pdf.setFontSize(7);

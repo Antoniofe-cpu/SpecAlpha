@@ -10,6 +10,7 @@ import {
     Activity,
     Star,
     Globe,
+    MousePointerClick,
 } from 'lucide-react';
 import './App.css';
 import AssetCard from './components/AssetCard';
@@ -366,6 +367,27 @@ export default function App() {
                                 </div>
                             ))}
                         </div>
+                    )}
+                    {/* Soft cue: invite users to click any card to expand */}
+                    {visibleAssets.length > 0 && pendingAssets.length === 0 && (
+                        <motion.div
+                            data-testid="expand-hint"
+                            initial={{ opacity: 0, y: 8 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ duration: 0.6, delay: 0.4, ease: [0.22, 1, 0.36, 1] }}
+                            className="mt-8 flex justify-center"
+                        >
+                            <div className="group inline-flex items-center gap-2 px-4 py-2 rounded-full border border-white/[0.06] bg-white/[0.02] hover:border-amber-500/30 hover:bg-amber-500/[0.04] transition-colors">
+                                <span className="relative flex h-2 w-2">
+                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400/50 opacity-75" />
+                                    <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-400" />
+                                </span>
+                                <MousePointerClick size={13} className="text-amber-300/70 group-hover:text-amber-300 transition-colors" />
+                                <span className="text-[11px] uppercase tracking-[0.22em] text-gray-400 group-hover:text-gray-200 transition-colors font-semibold">
+                                    {t('app.expand_hint')}
+                                </span>
+                            </div>
+                        </motion.div>
                     )}
                 </section>
 

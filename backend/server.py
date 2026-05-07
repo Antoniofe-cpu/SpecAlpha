@@ -17,7 +17,7 @@ import os
 import re
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, APIRouter, HTTPException, Query
@@ -63,38 +63,63 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 
 
-async def _gemini_direct_call(system: str, user: str) -> Optional[str]:
+_GEMINI_LOCK = asyncio.Lock()  # serialise Gemini calls (free tier = 15 RPM)
+
+
+async def _gemini_direct_call(system: str, user: str, max_retries: int = 0) -> Optional[str]:
     """Call Google Gemini API directly via google-genai SDK.
 
     Returns the response text, or None on failure / when GEMINI_API_KEY is unset.
-    Runs the synchronous SDK in a thread to keep the event loop free.
+    Serialises calls with a lock to avoid free-tier 429 rate limits.
+    On 429 we fail fast and let the caller use the fallback (we no longer cache
+    fallbacks, so the next refresh retries automatically).
     """
     if not GEMINI_API_KEY:
         return None
     try:
         from google import genai  # type: ignore
         from google.genai import types  # type: ignore
-
-        def _sync_call() -> str:
-            client_g = genai.Client(api_key=GEMINI_API_KEY)
-            resp = client_g.models.generate_content(
-                model=GEMINI_MODEL,
-                contents=user,
-                config=types.GenerateContentConfig(system_instruction=system),
-            )
-            return (getattr(resp, "text", "") or "").strip()
-
-        return await asyncio.to_thread(_sync_call)
     except Exception as e:  # noqa: BLE001
-        logger.warning("Gemini direct call failed: %s", e)
+        logger.warning("google-genai import failed: %s", e)
+        return None
+
+    def _sync_call() -> str:
+        client_g = genai.Client(api_key=GEMINI_API_KEY)
+        resp = client_g.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=user,
+            config=types.GenerateContentConfig(system_instruction=system),
+        )
+        return (getattr(resp, "text", "") or "").strip()
+
+    async with _GEMINI_LOCK:
+        attempt = 0
+        while attempt <= max_retries:
+            try:
+                result = await asyncio.to_thread(_sync_call)
+                # gentle pacing under free-tier 15 RPM (~4s between calls)
+                await asyncio.sleep(4.5)
+                return result
+            except Exception as e:  # noqa: BLE001
+                msg = str(e)[:200]
+                is_429 = "429" in msg or "RESOURCE_EXHAUSTED" in msg or "quota" in msg.lower()
+                if attempt >= max_retries or is_429:
+                    logger.warning("Gemini call failed: %s", msg)
+                    return None
+                await asyncio.sleep(2)
+                attempt += 1
         return None
 
 # ---------------------------------------------------------------------------
 # AI Insight (Gemini via emergentintegrations)
 # ---------------------------------------------------------------------------
 
-async def generate_macro_insight(asset_id: str, snapshot: Dict[str, Any], lang: str = "it") -> str:
-    """Generate a short institutional-style macro insight using Gemini."""
+async def generate_macro_insight(asset_id: str, snapshot: Dict[str, Any], lang: str = "it") -> Tuple[str, bool]:
+    """Generate a short institutional-style macro insight using Gemini.
+
+    Returns (text, used_fallback). When `used_fallback` is True the caller should
+    avoid caching the result for the full TTL so we retry the AI on next access.
+    """
     delta = snapshot.get("wowDelta", 0)
     net = snapshot.get("netPosition", 0)
     sentiment = "Bullish Flow" if delta > 0 else "Bearish Flow"
@@ -149,17 +174,19 @@ async def generate_macro_insight(asset_id: str, snapshot: Dict[str, Any], lang: 
         )
 
     if not EMERGENT_LLM_KEY and not GEMINI_API_KEY:
-        return fallback
+        return fallback, True
 
     # Priority 1: Direct Gemini API (works in any deployment)
     direct = await _gemini_direct_call(system, prompt_tpl)
     if direct:
         text = direct.strip().strip('"').strip("'")
-        return text[:240] if len(text) > 10 else fallback
+        if len(text) > 10:
+            return text[:240], False
+        return fallback, True
 
     # Priority 2: Emergent LLM Key (works only inside Emergent platform)
     if not EMERGENT_LLM_KEY:
-        return fallback
+        return fallback, True
 
     try:
         from emergentintegrations.llm.chat import LlmChat, UserMessage  # type: ignore
@@ -173,10 +200,12 @@ async def generate_macro_insight(asset_id: str, snapshot: Dict[str, Any], lang: 
         msg = UserMessage(text=prompt_tpl)
         response = await chat.send_message(msg)
         text = (response or "").strip().strip('"').strip("'")
-        return text[:240] if len(text) > 10 else fallback
+        if len(text) > 10:
+            return text[:240], False
+        return fallback, True
     except Exception as e:  # noqa: BLE001
         logger.warning("AI insight failed for %s: %s", asset_id, e)
-        return fallback
+        return fallback, True
 
 
 # ---------------------------------------------------------------------------
@@ -308,9 +337,12 @@ async def _fetch_snapshot(asset_id: str, force: bool = False, lang: str = "it") 
         "type": meta["type"],
         **raw,
     }
-    snapshot["macro"] = await generate_macro_insight(asset_id, snapshot, lang=lang)
+    macro_text, used_fallback = await generate_macro_insight(asset_id, snapshot, lang=lang)
+    snapshot["macro"] = macro_text
     snapshot["fetchedAt"] = _now().isoformat()
-    await set_cached(asset_id, snapshot, lang=lang)
+    # Only cache when AI generated a real insight; otherwise let next call retry.
+    if not used_fallback:
+        await set_cached(asset_id, snapshot, lang=lang)
     return snapshot
 
 
@@ -325,7 +357,7 @@ async def cot_bulk(
         k for k, v in ASSET_MAP.items()
         if scope == "all" or v.get("core")
     ]
-    sem = asyncio.Semaphore(4)
+    sem = asyncio.Semaphore(2)
 
     async def runner(aid: str) -> Optional[Dict[str, Any]]:
         async with sem:

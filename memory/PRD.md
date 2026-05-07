@@ -130,3 +130,19 @@
 - P2: Disaggregated COT report (commercial vs swap dealer)
 - P2: Email/Telegram alerts on extreme divergence
 - P2: Multi-language toggle (IT/EN)
+
+## Latest Session (Feb 2026) — Round 10 (PDF + UX fixes + AI quota)
+- **PDF Export overhauled**:
+  - Removed bug in footer loop that overwrote pages 2+ background, erasing content (caused "blank pages").
+  - Macro Sentiment panel now auto-sizes and includes up to 5 macro news events (country · date · event · prev) — previously news were dropped.
+  - "COT Intelligence" panel taller (50mm) with explicit `lineHeightFactor` for clean wrapping of longer Bloomberg-style text.
+  - Signal Accuracy section now uses correct `window12w` / `window24w` keys (was rendering literal `MODAL.PERF.WINDOW_52W` placeholders).
+  - `ensurePage` reserves 4mm headspace for the mini header band on subsequent pages.
+- **UI**: added "soft" expand-hint pill under the cards grid (pulsing amber dot + MousePointerClick icon, IT/EN translated).
+- **Institutional Analysis "always the same"** root cause identified: user's Google Gemini API key on free tier (15-20 RPM) and Emergent LLM key budget exhausted. Code changes:
+  - `_gemini_direct_call` now serialises calls with `_GEMINI_LOCK` + 4.5s pacing (~13 RPM, safe under 15 RPM free tier).
+  - On 429/quota, fail fast instead of long backoff (don't block UI).
+  - `generate_macro_insight` returns `(text, used_fallback)`. `_fetch_snapshot` skips caching when fallback is used → next refresh retries AI.
+  - Bulk fetch concurrency reduced (Semaphore 4 → 2) since AI is serialised anyway.
+  - Stale fallback caches purged.
+  - **User action required**: top up Emergent Universal Key OR upgrade Gemini API key to paid tier — otherwise the macro insight will continue to fall back to the deterministic template.

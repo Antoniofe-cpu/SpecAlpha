@@ -39,6 +39,7 @@ const STR = {
         'app.empty.fav': 'Nessun asset preferito. Clicca sulla stella per aggiungerne.',
         'app.empty.data': 'Nessun dato disponibile.',
         'app.pending.sync': 'Sync flussi…',
+        'app.expand_hint': 'Clicca una card per espandere i dettagli',
         'app.footer.title': 'Data Source · Tradingster (CFTC Legacy Futures)',
         'app.footer.body':
             'Tutti i dati sono estratti dai report ufficiali CFTC Commitment of Traders. Aggiornamento automatico ogni sabato.',
@@ -255,6 +256,7 @@ const STR = {
         'app.empty.fav': 'No favorite assets yet. Click the star to add one.',
         'app.empty.data': 'No data available.',
         'app.pending.sync': 'Syncing flows…',
+        'app.expand_hint': 'Click any card to expand details',
         'app.footer.title': 'Data Source · Tradingster (CFTC Legacy Futures)',
         'app.footer.body':
             'All data is sourced from official CFTC Commitment of Traders reports. Auto-updated every Saturday.',
