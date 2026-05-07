@@ -46,7 +46,8 @@ from price_scraper import (
 )
 from options_scraper import get_options_analytics, OPTIONS_MAP
 from sentiment_calculator import calculate_sentiment_from_cot, calculate_sentiment_history
-from ig_sentiment_scraper import fetch_ig_sentiment, fetch_ig_price_history
+from myfxbook_scraper import fetch_myfxbook_sentiment
+from price_scraper import fetch_daily_closes, YAHOO_SYMBOL
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -580,13 +581,13 @@ async def _options_with_underlying(asset_id: str) -> Optional[Dict[str, Any]]:
 
 
 # ---------------------------------------------------------------------------
-# Sentiment Calculator (COT + IG Markets)
+# Sentiment Calculator (COT + MyFxBook + Yahoo Finance Prices)
 # ---------------------------------------------------------------------------
 @api.get("/sentiment/{asset_id}")
 async def get_sentiment(asset_id: str) -> Dict[str, Any]:
-    """Calculate market sentiment from COT positioning + IG Markets client sentiment.
+    """Calculate market sentiment from COT + MyFxBook community sentiment.
     
-    Returns sentiment score, interpretation, historical trend, and price history.
+    Returns sentiment score, interpretation, historical trend, and Yahoo Finance prices.
     """
     asset_id = asset_id.upper()
     if asset_id not in ASSET_MAP:
@@ -600,12 +601,12 @@ async def get_sentiment(asset_id: str) -> Dict[str, Any]:
     # Calculate current sentiment from COT
     sentiment = calculate_sentiment_from_cot(cot_snap)
     
-    # Try to get IG Markets sentiment (overwrites long/short percentages if available)
-    ig_sentiment = await fetch_ig_sentiment(asset_id)
-    if ig_sentiment:
-        sentiment["longPercentage"] = ig_sentiment["longPercentage"]
-        sentiment["shortPercentage"] = ig_sentiment["shortPercentage"]
-        sentiment["source"] = "IG Markets"
+    # Try to get MyFxBook sentiment (overwrites long/short percentages if available)
+    myfxbook_sentiment = await fetch_myfxbook_sentiment(asset_id)
+    if myfxbook_sentiment:
+        sentiment["longPercentage"] = myfxbook_sentiment["longPercentage"]
+        sentiment["shortPercentage"] = myfxbook_sentiment["shortPercentage"]
+        sentiment["source"] = "MyFxBook"
     else:
         sentiment["source"] = "COT Calculated"
     
@@ -613,8 +614,22 @@ async def get_sentiment(asset_id: str) -> Dict[str, Any]:
     history = await cot_history(asset_id, limit=12)
     sentiment_history = calculate_sentiment_history(history)
     
-    # Get price history from IG Markets (90 days)
-    price_history = await fetch_ig_price_history(asset_id, days=90)
+    # Get price history from Yahoo Finance (90 days)
+    price_history = None
+    if asset_id in YAHOO_SYMBOL:
+        try:
+            end_date = datetime.now(timezone.utc)
+            start_date = end_date - timedelta(days=90)
+            
+            price_dict = await fetch_daily_closes(asset_id, start_date, end_date)
+            
+            # Convert to list format
+            price_history = [
+                {"date": date, "price": price}
+                for date, price in sorted(price_dict.items())
+            ]
+        except Exception as e:
+            logger.warning(f"Failed to fetch Yahoo Finance prices for {asset_id}: {e}")
     
     return {
         "assetId": asset_id,
