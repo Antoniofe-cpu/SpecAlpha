@@ -252,29 +252,33 @@ export default function SentimentGauge({ data, loading, error }) {
                             {score > 0 ? '+' : ''}{score}
                         </div>
                         <div className="text-[9px] text-gray-500 uppercase tracking-wider mt-1.5 font-semibold">
-                            Contrarian Score
+                            Sentiment Score (Crowd)
                         </div>
-                    </div>
-
-                    {/* Contrarian Action Signal */}
-                    <div
-                        data-testid="contrarian-signal-badge"
-                        className={cn(
-                            'w-full mb-2 px-3 py-2 rounded-xl border text-center font-bold text-[12px] uppercase tracking-wider',
-                            contrarian.signal === 'BUY' ? 'border-[#10b981]/40 bg-[#10b981]/15 text-[#34d399]' :
-                            contrarian.signal === 'SELL' ? 'border-[#f43f5e]/40 bg-[#f43f5e]/15 text-[#fb7185]' :
-                            'border-white/20 bg-white/5 text-gray-300'
-                        )}
-                    >
-                        {contrarian.signal} {contrarian.strength !== 'None' ? `· ${contrarian.strength}` : ''}
                     </div>
 
                     {/* Crowd Label */}
                     <div
                         data-testid="crowd-label-badge"
-                        className="w-full mb-3 px-3 py-1.5 rounded-lg border border-white/10 bg-white/[0.02] text-center text-[10px] text-gray-400 uppercase tracking-widest"
+                        className="w-full mb-2 px-3 py-1.5 rounded-lg border border-white/10 bg-white/[0.02] text-center text-[10px] text-gray-400 uppercase tracking-widest"
                     >
                         Crowd: <span className="text-gray-200 font-semibold">{crowdLabel}</span>
+                    </div>
+
+                    {/* Contrarian Action Signal — clearly separate from crowd score */}
+                    <div
+                        data-testid="contrarian-signal-badge"
+                        className={cn(
+                            'w-full mb-3 px-3 py-2 rounded-xl border text-center text-[11px] uppercase tracking-wider font-bold',
+                            contrarian.signal === 'BUY' ? 'border-[#10b981]/40 bg-[#10b981]/15 text-[#34d399]' :
+                            contrarian.signal === 'SELL' ? 'border-[#f43f5e]/40 bg-[#f43f5e]/15 text-[#fb7185]' :
+                            'border-white/20 bg-white/5 text-gray-300'
+                        )}
+                        title="Azione contrarian: opposta al posizionamento della folla"
+                    >
+                        <div className="text-[8px] tracking-[0.22em] text-gray-400 font-semibold mb-0.5">
+                            Contrarian Action
+                        </div>
+                        {contrarian.signal} {contrarian.strength !== 'None' ? `· ${contrarian.strength}` : ''}
                     </div>
                     
                     <div className="w-full space-y-2.5">
