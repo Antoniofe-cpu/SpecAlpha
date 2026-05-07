@@ -4,7 +4,7 @@ import { ComposedChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Cartes
 import { cn } from '../utils';
 
 /**
- * SentimentGauge - Beautiful market sentiment with dual-axis chart
+ * SentimentGauge - Market sentiment with dual-axis chart
  */
 export default function SentimentGauge({ data, loading, error }) {
     if (loading) {
@@ -38,40 +38,53 @@ export default function SentimentGauge({ data, loading, error }) {
     const gaugePercent = ((score + 100) / 200) * 100;
     const Icon = score > 10 ? TrendingUp : score < -10 ? TrendingDown : Activity;
 
-    // Prepare chart data - merge sentiment + price by date
+    // Prepare chart data - CRITICAL: Ensure sentiment data is properly mapped
     const sentimentMap = new Map();
-    (history || []).forEach(h => {
-        if (h.date) {
-            sentimentMap.set(h.date, h.score);
-        }
-    });
+    if (history && Array.isArray(history)) {
+        history.forEach(h => {
+            if (h.date && h.score !== undefined) {
+                sentimentMap.set(h.date, h.score);
+            }
+        });
+    }
 
     const priceMap = new Map();
-    if (priceHistory && priceHistory.length > 0) {
+    if (priceHistory && Array.isArray(priceHistory)) {
         priceHistory.forEach(p => {
-            if (p.date) {
+            if (p.date && p.price !== undefined) {
                 priceMap.set(p.date, p.price);
             }
         });
     }
 
-    // Merge by date
+    // Merge by date - keep ALL dates from both sources
     const allDates = new Set([...sentimentMap.keys(), ...priceMap.keys()]);
     const chartData = Array.from(allDates).sort().map(date => ({
         date,
-        sentiment: sentimentMap.get(date),
-        price: priceMap.get(date),
+        sentiment: sentimentMap.has(date) ? sentimentMap.get(date) : undefined,
+        price: priceMap.has(date) ? priceMap.get(date) : undefined,
     }));
 
-    // Last 12 weeks
-    const displayData = chartData.slice(-12);
+    // Take all available data (not just last 12)
+    const displayData = chartData.length > 12 ? chartData.slice(-50) : chartData;
 
     // Calculate price domain
-    const prices = displayData.map(d => d.price).filter(p => p !== undefined);
+    const prices = displayData.map(d => d.price).filter(p => p !== undefined && p !== null);
+    const sentiments = displayData.map(d => d.sentiment).filter(s => s !== undefined && s !== null);
+    
     const minPrice = prices.length > 0 ? Math.min(...prices) : 0;
     const maxPrice = prices.length > 0 ? Math.max(...prices) : 100;
     const priceRange = maxPrice - minPrice;
     const pricePadding = priceRange * 0.05;
+
+    console.log('SentimentGauge Debug:', {
+        historyLength: history?.length,
+        priceHistoryLength: priceHistory?.length,
+        displayDataLength: displayData.length,
+        sentimentsCount: sentiments.length,
+        pricesCount: prices.length,
+        sampleData: displayData.slice(0, 3)
+    });
 
     return (
         <div className="bg-gradient-to-br from-[#0e0e14] via-[#12121a] to-[#0e0e14] border border-white/[0.08] rounded-3xl p-6 shadow-2xl backdrop-blur-xl">
@@ -103,7 +116,6 @@ export default function SentimentGauge({ data, loading, error }) {
                 <div className="flex flex-col items-center" style={{ width: '150px' }}>
                     <div className="relative w-full mb-2">
                         <svg viewBox="0 0 150 95" className="w-full drop-shadow-2xl">
-                            {/* Outer glow */}
                             <defs>
                                 <filter id="glow">
                                     <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
@@ -119,7 +131,6 @@ export default function SentimentGauge({ data, loading, error }) {
                                 </linearGradient>
                             </defs>
                             
-                            {/* Background arc */}
                             <path
                                 d="M 25 80 A 50 50 0 0 1 125 80"
                                 fill="none"
@@ -128,7 +139,6 @@ export default function SentimentGauge({ data, loading, error }) {
                                 strokeLinecap="round"
                             />
                             
-                            {/* Colored arc with glow */}
                             <path
                                 d="M 25 80 A 50 50 0 0 1 125 80"
                                 fill="none"
@@ -141,7 +151,6 @@ export default function SentimentGauge({ data, loading, error }) {
                                 filter="url(#glow)"
                             />
                             
-                            {/* Needle with shadow */}
                             <g transform={`rotate(${-90 + (gaugePercent * 1.8)} 75 80)`} filter="url(#glow)">
                                 <circle cx="75" cy="80" r="6" fill={color} opacity="0.3" />
                                 <circle cx="75" cy="80" r="5" fill={color} />
@@ -156,13 +165,11 @@ export default function SentimentGauge({ data, loading, error }) {
                                 />
                             </g>
                             
-                            {/* Center dot */}
                             <circle cx="75" cy="80" r="8" fill="#0e0e14" stroke={color} strokeWidth="2.5" />
                             <circle cx="75" cy="80" r="3" fill={color} />
                         </svg>
                     </div>
 
-                    {/* Score */}
                     <div className="flex flex-col items-center mb-4">
                         <div 
                             className="font-mono text-[32px] font-bold tnum leading-none drop-shadow-lg"
@@ -175,7 +182,6 @@ export default function SentimentGauge({ data, loading, error }) {
                         </div>
                     </div>
                     
-                    {/* Long/Short */}
                     <div className="w-full space-y-2.5">
                         <div className="bg-gradient-to-br from-[#10b981]/10 to-transparent border border-[#10b981]/30 rounded-xl p-3 backdrop-blur-sm">
                             <div className="text-[9px] uppercase tracking-widest text-gray-400 mb-1 font-bold">
@@ -198,30 +204,17 @@ export default function SentimentGauge({ data, loading, error }) {
                     </div>
                 </div>
 
-                {/* Right: Dual-axis beautiful chart */}
+                {/* Right: Dual-axis chart */}
                 <div className="min-h-[280px] bg-black/20 rounded-2xl p-4 border border-white/[0.05]">
-                    {displayData.length > 1 ? (
+                    {displayData.length > 0 ? (
                         <ResponsiveContainer width="100%" height={280}>
                             <ComposedChart data={displayData} margin={{ top: 10, right: 15, left: 0, bottom: 5 }}>
-                                <defs>
-                                    <linearGradient id="sentGrad" x1="0" y1="0" x2="0" y2="1">
-                                        <stop offset="0%" stopColor="#a78bfa" stopOpacity={0.8}/>
-                                        <stop offset="100%" stopColor="#a78bfa" stopOpacity={0.1}/>
-                                    </linearGradient>
-                                    <linearGradient id="priceGrad" x1="0" y1="0" x2="0" y2="1">
-                                        <stop offset="0%" stopColor="#60a5fa" stopOpacity={0.8}/>
-                                        <stop offset="100%" stopColor="#60a5fa" stopOpacity={0.1}/>
-                                    </linearGradient>
-                                </defs>
-                                
-                                {/* Grid */}
                                 <CartesianGrid 
                                     strokeDasharray="3 3" 
                                     stroke="rgba(255,255,255,0.05)" 
                                     vertical={false}
                                 />
                                 
-                                {/* X Axis */}
                                 <XAxis 
                                     dataKey="date" 
                                     stroke="#6b7280"
@@ -235,7 +228,7 @@ export default function SentimentGauge({ data, loading, error }) {
                                     tickLine={false}
                                 />
                                 
-                                {/* Left Y-axis: Sentiment */}
+                                {/* Left Y-axis: Sentiment (-100 to +100) */}
                                 <YAxis 
                                     yAxisId="sentiment"
                                     stroke="#a78bfa"
@@ -275,7 +268,6 @@ export default function SentimentGauge({ data, loading, error }) {
                                     />
                                 )}
                                 
-                                {/* Zero reference for sentiment */}
                                 <ReferenceLine 
                                     yAxisId="sentiment" 
                                     y={0} 
@@ -283,7 +275,6 @@ export default function SentimentGauge({ data, loading, error }) {
                                     strokeDasharray="3 3"
                                 />
                                 
-                                {/* Tooltip */}
                                 <Tooltip
                                     contentStyle={{
                                         backgroundColor: 'rgba(10, 10, 13, 0.95)',
@@ -295,41 +286,35 @@ export default function SentimentGauge({ data, loading, error }) {
                                         boxShadow: '0 10px 40px rgba(0,0,0,0.5)',
                                     }}
                                     labelStyle={{ color: '#e5e7eb', marginBottom: '8px', fontWeight: 'bold', fontSize: '12px' }}
-                                    formatter={(value, name) => {
-                                        if (name === 'sentiment') {
-                                            return [value?.toFixed(1), 'Sentiment'];
-                                        }
-                                        if (name === 'price') {
-                                            return [value?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), 'Price'];
-                                        }
-                                        return [value, name];
-                                    }}
-                                    itemStyle={{ padding: '4px 0' }}
                                 />
                                 
-                                {/* Sentiment Line */}
-                                <Line 
-                                    yAxisId="sentiment"
-                                    type="monotone" 
-                                    dataKey="sentiment" 
-                                    stroke="url(#sentGrad)"
-                                    strokeWidth={3}
-                                    dot={false}
-                                    activeDot={{ r: 6, fill: '#a78bfa', stroke: '#0e0e14', strokeWidth: 2 }}
-                                    connectNulls
-                                />
+                                {/* Sentiment Line - ALWAYS render if data exists */}
+                                {sentiments.length > 0 && (
+                                    <Line 
+                                        yAxisId="sentiment"
+                                        type="monotone" 
+                                        dataKey="sentiment" 
+                                        stroke="#a78bfa"
+                                        strokeWidth={3}
+                                        dot={false}
+                                        activeDot={{ r: 6, fill: '#a78bfa', stroke: '#0e0e14', strokeWidth: 2 }}
+                                        connectNulls
+                                        name="Sentiment"
+                                    />
+                                )}
                                 
-                                {/* Price Line */}
+                                {/* Price Line - ALWAYS render if data exists */}
                                 {prices.length > 0 && (
                                     <Line 
                                         yAxisId="price"
                                         type="monotone" 
                                         dataKey="price" 
-                                        stroke="url(#priceGrad)"
+                                        stroke="#60a5fa"
                                         strokeWidth={3}
                                         dot={false}
                                         activeDot={{ r: 6, fill: '#60a5fa', stroke: '#0e0e14', strokeWidth: 2 }}
                                         connectNulls
+                                        name="Price"
                                     />
                                 )}
                             </ComposedChart>
