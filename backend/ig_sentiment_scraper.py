@@ -110,15 +110,45 @@ async def fetch_ig_sentiment(asset_id: str) -> Optional[Dict[str, Any]]:
         return None
     
     try:
-        # Fetch client sentiment via trading-ig
-        sentiment = ig_service.fetch_client_sentiment(epic)
+        # Fetch market details - returns DataFrame or dict
+        market_data = ig_service.fetch_market_by_epic(epic)
         
-        if not sentiment:
+        if market_data is None:
+            return None
+        
+        # Handle DataFrame response
+        if hasattr(market_data, 'to_dict'):
+            market_dict = market_data.to_dict('records')[0] if len(market_data) > 0 else {}
+        elif isinstance(market_data, dict):
+            market_dict = market_data
+        else:
+            logger.debug(f"Unexpected market_data type: {type(market_data)}")
+            return None
+        
+        # Try to get client sentiment from various possible locations
+        snapshot = market_dict.get("snapshot", {})
+        
+        # IG API may return clientSentiment in different places
+        client_sentiment = (
+            snapshot.get("clientSentiment") or 
+            market_dict.get("clientSentiment") or
+            {}
+        )
+        
+        if not client_sentiment:
+            logger.debug(f"No client sentiment data for {asset_id} ({epic})")
+            return None
+        
+        # Parse sentiment percentages
+        long_pct = client_sentiment.get("longPositionPercentage")
+        short_pct = client_sentiment.get("shortPositionPercentage")
+        
+        if long_pct is None or short_pct is None:
             return None
         
         return {
-            "longPercentage": float(sentiment.get("longPositionPercentage", 50)),
-            "shortPercentage": float(sentiment.get("shortPositionPercentage", 50)),
+            "longPercentage": float(long_pct),
+            "shortPercentage": float(short_pct),
             "source": "IG Markets",
             "epic": epic,
         }
@@ -155,52 +185,85 @@ async def fetch_ig_price_history(asset_id: str, days: int = 90) -> Optional[List
         start_str = start_date.strftime("%Y-%m-%d %H:%M:%S")
         end_str = end_date.strftime("%Y-%m-%d %H:%M:%S")
         
-        prices = ig_service.fetch_historical_prices_by_epic_and_date_range(
+        prices_response = ig_service.fetch_historical_prices_by_epic_and_date_range(
             epic=epic,
             resolution="D",  # Daily
             start_date=start_str,
             end_date=end_str
         )
         
-        if not prices or "prices" not in prices:
+        if not prices_response:
             return None
         
-        # Extract price data
-        price_list = prices["prices"]
-        if not price_list:
-            return None
-        
-        # Convert to our format
-        history = []
-        for entry in price_list:
-            snapshot_time = entry.get("snapshotTime") or entry.get("snapshotTimeUTC")
-            if not snapshot_time:
-                continue
-            
-            # Parse date (format: 2026/05/07 00:00:00)
-            try:
-                dt = datetime.strptime(snapshot_time, "%Y/%m/%d %H:%M:%S")
-                date_str = dt.strftime("%Y-%m-%d")
-            except:
-                # Try alternative format
+        # Check if response is a DataFrame (pandas)
+        if hasattr(prices_response, 'iterrows'):
+            # It's a DataFrame
+            history = []
+            for idx, row in prices_response.iterrows():
                 try:
-                    dt = datetime.strptime(snapshot_time.split()[0], "%Y/%m/%d")
-                    date_str = dt.strftime("%Y-%m-%d")
-                except:
+                    # Get date from index or column
+                    if hasattr(idx, 'strftime'):
+                        date_str = idx.strftime("%Y-%m-%d")
+                    else:
+                        date_str = str(idx).split()[0]
+                    
+                    # Get close price
+                    close_price = None
+                    if 'Close' in row:
+                        close_price = float(row['Close'])
+                    elif 'close' in row:
+                        close_price = float(row['close'])
+                    elif 'closePrice' in row:
+                        close_price = float(row['closePrice'])
+                    
+                    if close_price is not None:
+                        history.append({
+                            "date": date_str,
+                            "price": close_price,
+                        })
+                except Exception as e:
                     continue
             
-            # Get close price (or last traded price)
-            close_price = entry.get("closePrice", {}).get("bid")
-            if close_price is None:
-                close_price = entry.get("lastTradedPrice", {}).get("bid")
-            
-            if close_price is not None:
-                history.append({
-                    "date": date_str,
-                    "price": float(close_price),
-                })
+            return history if history else None
         
-        return history
+        # Handle dict response (legacy format)
+        if isinstance(prices_response, dict) and "prices" in prices_response:
+            price_list = prices_response["prices"]
+            if not price_list:
+                return None
+            
+            # Convert to our format
+            history = []
+            for entry in price_list:
+                snapshot_time = entry.get("snapshotTime") or entry.get("snapshotTimeUTC")
+                if not snapshot_time:
+                    continue
+                
+                # Parse date
+                try:
+                    dt = datetime.strptime(snapshot_time, "%Y/%m/%d %H:%M:%S")
+                    date_str = dt.strftime("%Y-%m-%d")
+                except:
+                    try:
+                        dt = datetime.strptime(snapshot_time.split()[0], "%Y/%m/%d")
+                        date_str = dt.strftime("%Y-%m-%d")
+                    except:
+                        continue
+                
+                # Get close price
+                close_price = entry.get("closePrice", {}).get("bid")
+                if close_price is None:
+                    close_price = entry.get("lastTradedPrice", {}).get("bid")
+                
+                if close_price is not None:
+                    history.append({
+                        "date": date_str,
+                        "price": float(close_price),
+                    })
+            
+            return history if history else None
+        
+        return None
         
     except Exception as e:
         logger.warning(f"Failed to fetch IG price history for {asset_id} ({epic}): {e}")
