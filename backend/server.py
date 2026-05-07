@@ -615,29 +615,33 @@ async def get_sentiment(asset_id: str) -> Dict[str, Any]:
     if retail_sentiment:
         # Convert TradingView score (-1 to +1) to our scale (-100 to +100)
         raw_value = retail_sentiment.get("components", {}).get("overall", 0)
-        score = raw_value * 100  # -1 → -100, +1 → +100
+        crowd_score = raw_value * 100  # Crowd sentiment
         
-        # Determine interpretation from score
+        # CONTRARIAN INVERSION: If crowd is bullish, we should be bearish
+        # Invert the score for contrarian strategy
+        score = -crowd_score  # +51 crowd bullish → -51 contrarian bearish (SELL)
+        
+        # Determine interpretation from CONTRARIAN score
         if score >= 70:
-            interpretation = "Extremely Bullish"
+            interpretation = "Extremely Bullish"  # Crowd panic = BUY
             color = "#10b981"
         elif score >= 40:
-            interpretation = "Bullish"
+            interpretation = "Bullish"  # Crowd bearish = BUY
             color = "#34d399"
         elif score >= 10:
-            interpretation = "Slightly Bullish"
+            interpretation = "Slightly Bullish"  # Crowd slightly bearish = cautious BUY
             color = "#34d399"
         elif score > -10:
-            interpretation = "Neutral"
+            interpretation = "Neutral"  # Crowd neutral = WAIT
             color = "#94a3b8"
         elif score > -40:
-            interpretation = "Slightly Bearish"
+            interpretation = "Slightly Bearish"  # Crowd slightly bullish = cautious SELL
             color = "#fb7185"
         elif score > -70:
-            interpretation = "Bearish"
+            interpretation = "Bearish"  # Crowd bullish = SELL
             color = "#f43f5e"
         else:
-            interpretation = "Extremely Bearish"
+            interpretation = "Extremely Bearish"  # Crowd euphoria = SELL
             color = "#f43f5e"
         
         current_sentiment = {
@@ -648,6 +652,7 @@ async def get_sentiment(asset_id: str) -> Dict[str, Any]:
             "shortPercentage": retail_sentiment["shortPercentage"],
             "source": retail_sentiment["source"],
             "classification": retail_sentiment.get("classification", "Unknown"),
+            "crowdSentiment": round(crowd_score, 2),  # Original crowd sentiment for reference
             "contrarian": retail_sentiment.get("contrarian", {}),
             "components": retail_sentiment.get("components", {}),
         }
