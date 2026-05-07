@@ -22,3 +22,6 @@ export const fetchVerdictPerformance = (assetId) =>
     slow.get(`/verdict/${assetId}/performance`).then(r => r.data);
 export const fetchOptions = (assetId, refresh = false) =>
     slow.get(`/options/${assetId}`, { params: { refresh } }).then(r => r.data);
+export const fetchSentiment = (assetId) =>
+    fast.get(`/sentiment/${assetId}`).then(r => r.data);
+

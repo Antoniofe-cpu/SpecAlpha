@@ -33,10 +33,11 @@ import {
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { fetchHistory, fetchMacro, fetchVerdict, fetchVerdictPerformance, fetchOptions } from '../api';
+import { fetchHistory, fetchMacro, fetchVerdict, fetchVerdictPerformance, fetchOptions, fetchSentiment } from '../api';
 import { cn, formatNumber, formatSigned, getTrendAnalysis, TONE_CLASSES } from '../utils';
 import { useT } from '../i18n';
 import OptionsPanel from './OptionsPanel';
+import SentimentGauge from './SentimentGauge';
 
 const SERIES = [
     { key: 'netPosition', label: 'Net', color: '#f59e0b', gradId: 'gNet', yAxis: 'left', fmt: 'k' },
@@ -72,6 +73,9 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
     const [options, setOptions] = useState(null);
     const [optionsLoading, setOptionsLoading] = useState(false);
     const [optionsError, setOptionsError] = useState(false);
+    const [sentiment, setSentiment] = useState(null);
+    const [sentimentLoading, setSentimentLoading] = useState(false);
+    const [sentimentError, setSentimentError] = useState(null);
 
     const toggleSeries = (k) =>
         setVisible((v) => {
@@ -118,6 +122,9 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
         setOptions(null);
         setOptionsError(false);
         setOptionsLoading(true);
+        setSentiment(null);
+        setSentimentError(null);
+        setSentimentLoading(true);
         fetchMacro(asset.assetId, false, lang)
             .then((d) => !cancelled && setMacro(d))
             .catch(() => {})
@@ -130,6 +137,10 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
             .then((d) => !cancelled && setOptions(d))
             .catch(() => !cancelled && setOptionsError(true))
             .finally(() => !cancelled && setOptionsLoading(false));
+        fetchSentiment(asset.assetId)
+            .then((d) => !cancelled && setSentiment(d))
+            .catch((e) => !cancelled && setSentimentError(e.message || 'Failed to load sentiment'))
+            .finally(() => !cancelled && setSentimentLoading(false));
         return () => { cancelled = true; };
     }, [asset?.assetId, lang]);
 
@@ -975,6 +986,13 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                 )}
                             </div>
                         </div>
+
+                        {/* Sentiment Gauge */}
+                        <SentimentGauge 
+                            data={sentiment} 
+                            loading={sentimentLoading} 
+                            error={sentimentError}
+                        />
 
                         {/* Options & GEX panel — sits above the historical chart */}
                         {(optionsLoading || options || optionsError) && (

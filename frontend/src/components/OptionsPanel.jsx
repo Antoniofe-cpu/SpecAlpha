@@ -139,12 +139,15 @@ function StatPill({ label, value, sub, accent = 'amber', testId }) {
     );
 }
 
-function GexTooltip({ active, payload, t }) {
+function GexTooltip({ active, payload, t, toUnderlying }) {
     if (!active || !payload?.length) return null;
     const r = payload[0].payload;
+    const displayStrike = toUnderlying(r.strike) != null ? toUnderlying(r.strike) : r.strike;
+    const formatStrike = (v) => v == null ? '—' : Math.abs(v) >= 100 ? v.toLocaleString('en-US', { maximumFractionDigits: 2 }) : v.toLocaleString('en-US', { maximumFractionDigits: 4 });
+    
     return (
         <div className="bg-[#0a0a0d] border border-amber-500/30 rounded-2xl px-3 py-2 text-[12px] font-mono shadow-2xl">
-            <div className="text-amber-300 font-bold mb-1">K {r.strike}</div>
+            <div className="text-amber-300 font-bold mb-1">K {formatStrike(displayStrike)}</div>
             <div className="text-[#34d399]">{t('options.calls_oi')}: {r.callOi}</div>
             <div className="text-[#fb7185]">{t('options.puts_oi')}: {r.putOi}</div>
             <div className={cn('mt-1 pt-1 border-t border-white/10', r.netGex >= 0 ? 'text-[#34d399]' : 'text-[#fb7185]')}>
@@ -168,6 +171,7 @@ function FullPanel({ data, t }) {
     const bars = (data.gexBars || []).map((r) => ({
         ...r,
         absNet: Math.abs(r.netGex),
+        displayStrike: toUnderlying(r.strike) != null ? toUnderlying(r.strike) : r.strike,
     }));
     const regimeLabel =
         data.regime === 'long_gamma'   ? t('options.regime.long_gamma')
@@ -275,13 +279,14 @@ function FullPanel({ data, t }) {
                     <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={bars} margin={{ top: 5, right: 8, bottom: 0, left: -10 }}>
                             <XAxis
-                                dataKey="strike"
+                                dataKey="displayStrike"
                                 stroke="#6b7280"
                                 fontSize={10}
                                 axisLine={false}
                                 tickLine={false}
                                 tick={{ fontFamily: 'Geist Mono' }}
                                 interval="preserveStartEnd"
+                                tickFormatter={(v) => Math.abs(v) >= 100 ? Math.round(v) : v.toFixed(2)}
                             />
                             <YAxis
                                 stroke="#6b7280"
@@ -292,10 +297,10 @@ function FullPanel({ data, t }) {
                                 tick={{ fontFamily: 'Geist Mono' }}
                                 tickFormatter={(v) => fmtCompact(v)}
                             />
-                            <Tooltip content={<GexTooltip t={t} />} cursor={{ fill: 'rgba(245,158,11,0.08)' }} />
+                            <Tooltip content={<GexTooltip t={t} toUnderlying={toUnderlying} />} cursor={{ fill: 'rgba(245,158,11,0.08)' }} />
                             <ReferenceLine y={0} stroke="rgba(255,255,255,0.18)" />
                             <ReferenceLine
-                                x={Number(spot)}
+                                x={u != null ? u : Number(spot)}
                                 stroke="#60a5fa"
                                 strokeDasharray="3 3"
                                 strokeWidth={1.5}
@@ -303,7 +308,7 @@ function FullPanel({ data, t }) {
                             />
                             {data.maxPain != null && (
                                 <ReferenceLine
-                                    x={Number(data.maxPain)}
+                                    x={toUnderlying(data.maxPain) != null ? toUnderlying(data.maxPain) : Number(data.maxPain)}
                                     stroke="#f59e0b"
                                     strokeDasharray="3 3"
                                     strokeWidth={1.5}

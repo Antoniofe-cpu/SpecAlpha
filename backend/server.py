@@ -45,6 +45,7 @@ from price_scraper import (
     YAHOO_SYMBOL,
 )
 from options_scraper import get_options_analytics, OPTIONS_MAP
+from sentiment_calculator import calculate_sentiment_from_cot, calculate_sentiment_history
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -66,43 +67,11 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 # daily AI quota at zero cost.
 GEMINI_API_KEY_2 = os.environ.get("GEMINI_API_KEY_2")
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
-# Anthropic Claude — last-resort fallback when BOTH Gemini keys are exhausted.
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
-ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-5")
+# Alpha Vantage API key for options data
+ALPHA_VANTAGE_API_KEY = os.environ.get("ALPHA_VANTAGE_API_KEY")
 
 
 _GEMINI_LOCK = asyncio.Lock()  # serialise Gemini calls (free tier = 15 RPM)
-_CLAUDE_LOCK = asyncio.Lock()  # serialise Claude fallbacks too
-
-
-async def _claude_call(system: str, user: str) -> Optional[str]:
-    """Call Anthropic Claude as an LLM fallback. Returns text or None."""
-    if not ANTHROPIC_API_KEY:
-        return None
-    try:
-        from anthropic import Anthropic  # type: ignore
-    except Exception as e:  # noqa: BLE001
-        logger.warning("anthropic import failed: %s", e)
-        return None
-
-    def _sync_call() -> str:
-        client_a = Anthropic(api_key=ANTHROPIC_API_KEY, timeout=30.0)
-        msg = client_a.messages.create(
-            model=ANTHROPIC_MODEL,
-            max_tokens=400,
-            system=system,
-            messages=[{"role": "user", "content": user}],
-        )
-        if msg.content and len(msg.content) > 0:
-            return (getattr(msg.content[0], "text", "") or "").strip()
-        return ""
-
-    async with _CLAUDE_LOCK:
-        try:
-            return await asyncio.to_thread(_sync_call)
-        except Exception as e:  # noqa: BLE001
-            logger.warning("Claude call failed: %s", str(e)[:200])
-            return None
 
 
 async def _gemini_direct_call(system: str, user: str, api_key: Optional[str] = None, max_retries: int = 0) -> Optional[str]:
@@ -151,10 +120,9 @@ async def _gemini_direct_call(system: str, user: str, api_key: Optional[str] = N
 
 
 async def _ai_text(system: str, user: str) -> Optional[str]:
-    """Unified AI call: rotate Gemini key #1 → Gemini key #2 → Claude → None.
+    """Unified AI call: rotate Gemini key #1 → Gemini key #2 → None.
 
-    Two Gemini keys = double the free-tier daily quota at zero cost. Claude
-    is kept as a last-resort fallback when both Gemini keys are exhausted.
+    Two Gemini keys = double the free-tier daily quota at zero cost.
     """
     # Try primary Gemini key
     if GEMINI_API_KEY:
@@ -166,8 +134,8 @@ async def _ai_text(system: str, user: str) -> Optional[str]:
         secondary = await _gemini_direct_call(system, user, api_key=GEMINI_API_KEY_2)
         if secondary:
             return secondary
-    # Final fallback: Claude
-    return await _claude_call(system, user)
+    # No keys available
+    return None
 
 # ---------------------------------------------------------------------------
 # AI Insight (Gemini via emergentintegrations)
@@ -232,10 +200,10 @@ async def generate_macro_insight(asset_id: str, snapshot: Dict[str, Any], lang: 
             "Sintetizza posizionamento, momentum settimanale e implicazioni operative. Solo italiano."
         )
 
-    if not EMERGENT_LLM_KEY and not GEMINI_API_KEY and not ANTHROPIC_API_KEY:
+    if not EMERGENT_LLM_KEY and not GEMINI_API_KEY:
         return fallback, True
 
-    # Priority 1: Gemini → Claude unified call (works in any deployment)
+    # Priority 1: Gemini dual-key rotation (works in any deployment)
     direct = await _ai_text(system, prompt_tpl)
     if direct:
         text = direct.strip().strip('"').strip("'")
@@ -607,6 +575,42 @@ async def _options_with_underlying(asset_id: str) -> Optional[Dict[str, Any]]:
     return await get_options_analytics(asset_id, underlying_spot=underlying_spot)
 
 
+
+
+# ---------------------------------------------------------------------------
+# Sentiment Calculator (COT-based)
+# ---------------------------------------------------------------------------
+@api.get("/sentiment/{asset_id}")
+async def get_sentiment(asset_id: str) -> Dict[str, Any]:
+    """Calculate market sentiment from COT positioning data.
+    
+    Returns sentiment score (-100 to +100), interpretation, color, and historical trend.
+    """
+    asset_id = asset_id.upper()
+    if asset_id not in ASSET_MAP:
+        raise HTTPException(status_code=404, detail="Unknown asset")
+    
+    # Get current COT snapshot
+    cot_snap = await get_cached(asset_id)
+    if cot_snap is None:
+        cot_snap = await _fetch_snapshot(asset_id)
+    
+    # Calculate current sentiment
+    sentiment = calculate_sentiment_from_cot(cot_snap)
+    
+    # Get historical data for sentiment trend
+    history = await cot_history(asset_id, limit=12)
+    sentiment_history = calculate_sentiment_history(history)
+    
+    return {
+        "assetId": asset_id,
+        "assetName": ASSET_MAP[asset_id]["name"],
+        "current": sentiment,
+        "history": sentiment_history,
+        "reportDate": cot_snap.get("reportDate"),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Macro Sentiment & Final Verdict endpoints
 # ---------------------------------------------------------------------------
@@ -627,10 +631,10 @@ async def _get_calendar_events():
 
 
 async def _llm_generate(system: str, user: str, session: str, fallback: str) -> str:
-    if not EMERGENT_LLM_KEY and not GEMINI_API_KEY and not ANTHROPIC_API_KEY:
+    if not EMERGENT_LLM_KEY and not GEMINI_API_KEY:
         return fallback
 
-    # Priority 1: Gemini → Claude unified call (works in any deployment)
+    # Priority 1: Gemini dual-key rotation (works in any deployment)
     direct = await _ai_text(system, user)
     if direct:
         return direct
@@ -749,6 +753,18 @@ async def final_verdict(asset_id: str, refresh: bool = Query(False), lang: str =
     cot_snap = await _fetch_snapshot(asset_id, lang=lang)
     macro = await macro_sentiment(asset_id, lang=lang)
     history = await cot_history(asset_id, limit=4)
+    
+    # Fetch options analytics if available
+    options_data = None
+    if asset_id in OPTIONS_MAP:
+        try:
+            options_data = await _options_with_underlying(asset_id)
+        except Exception as e:
+            logger.warning(f"Failed to fetch options for {asset_id}: {e}")
+    
+    # Calculate sentiment from COT data
+    sentiment_data = calculate_sentiment_from_cot(cot_snap)
+    
     price_change_pct = None
     latest_price = history[0].get("price") if history else None
     prev_price = history[1].get("price") if len(history) > 1 else None
@@ -756,34 +772,98 @@ async def final_verdict(asset_id: str, refresh: bool = Query(False), lang: str =
         price_change_pct = round(((latest_price - prev_price) / prev_price) * 100, 2)
 
     if lang == "en":
+        # Build options context if available
+        options_context = ""
+        if options_data and options_data.get("kind") == "full":
+            max_pain = options_data.get("maxPain")
+            spot = options_data.get("underlyingSpot") or options_data.get("spot")
+            net_gex = options_data.get("netGex", 0)
+            regime = options_data.get("regime", "neutral")
+            call_wall = options_data.get("callWall")
+            put_wall = options_data.get("putWall")
+            flip_strike = options_data.get("flipStrike")
+            
+            regime_desc = "dealers long gamma (suppressing vol)" if regime == "long_gamma" else \
+                         "dealers short gamma (amplifying moves)" if regime == "short_gamma" else "neutral"
+            
+            options_context = (
+                f"Options: Spot {spot}, Max Pain {max_pain}, "
+                f"Call Wall {call_wall}, Put Wall {put_wall}, "
+                f"Net GEX ${net_gex/1e6:.1f}M ({regime_desc})"
+            )
+            if flip_strike:
+                options_context += f", Gamma Flip {flip_strike}"
+            options_context += ". "
+        
+        sentiment_context = (
+            f"Sentiment: {sentiment_data['interpretation']} "
+            f"(score {sentiment_data['score']}, {sentiment_data['longPercentage']}% long / "
+            f"{sentiment_data['shortPercentage']}% short). "
+        )
+        
         context = (
             f"Asset: {asset_id} ({ASSET_MAP[asset_id]['name']}).\n"
             f"COT Non-Commercial: Net {cot_snap['netPosition']:+,}, Δ WoW {cot_snap['wowDelta']:+,}, "
             f"Long {cot_snap['long']:,}, Short {cot_snap['short']:,}.\n"
             f"COT macro insight: {cot_snap.get('macro', '')}\n"
+            f"{sentiment_context}\n"
+            f"{options_context}\n" if options_context else ""
             f"Weekly macro sentiment: {macro['summary']}\n"
             f"Last price: {latest_price or '—'} · WoW change: "
             f"{(str(price_change_pct) + '%') if price_change_pct is not None else 'N/A'}.\n\n"
             "TASK: Return ONLY JSON with this structure: "
             '{"verdict":"LONG|SHORT|WAIT","confidence":1-5,"summary":"..."}. '
             "Synthetic operational verdict considering (1) institutional COT positioning, "
-            "(2) last-week macro context, (3) price action. Summary max 200 chars in English."
+            "(2) market sentiment, (3) options levels & GEX regime if available, "
+            "(4) macro context, (5) price action. Summary max 200 chars in English."
         )
         system = "You are a senior portfolio manager. Reply only with valid JSON, no extra commentary. English only."
         fallback_json = '{"verdict":"WAIT","confidence":2,"summary":"Insufficient data for a solid verdict."}'
     else:
+        # Build options context if available (Italian)
+        options_context = ""
+        if options_data and options_data.get("kind") == "full":
+            max_pain = options_data.get("maxPain")
+            spot = options_data.get("underlyingSpot") or options_data.get("spot")
+            net_gex = options_data.get("netGex", 0)
+            regime = options_data.get("regime", "neutral")
+            call_wall = options_data.get("callWall")
+            put_wall = options_data.get("putWall")
+            flip_strike = options_data.get("flipStrike")
+            
+            regime_desc = "dealer long gamma (vol compressa)" if regime == "long_gamma" else \
+                         "dealer short gamma (vol amplificata)" if regime == "short_gamma" else "neutrale"
+            
+            options_context = (
+                f"Opzioni: Spot {spot}, Max Pain {max_pain}, "
+                f"Call Wall {call_wall}, Put Wall {put_wall}, "
+                f"Net GEX ${net_gex/1e6:.1f}M ({regime_desc})"
+            )
+            if flip_strike:
+                options_context += f", Gamma Flip {flip_strike}"
+            options_context += ". "
+        
+        sentiment_context = (
+            f"Sentiment: {sentiment_data['interpretation']} "
+            f"(score {sentiment_data['score']}, {sentiment_data['longPercentage']}% long / "
+            f"{sentiment_data['shortPercentage']}% short). "
+        )
+        
         context = (
             f"Asset: {asset_id} ({ASSET_MAP[asset_id]['name']}).\n"
             f"COT Non-Commercial: Net {cot_snap['netPosition']:+,}, Δ WoW {cot_snap['wowDelta']:+,}, "
             f"Long {cot_snap['long']:,}, Short {cot_snap['short']:,}.\n"
             f"COT Macro insight: {cot_snap.get('macro', '')}\n"
+            f"{sentiment_context}\n"
+            f"{options_context}\n" if options_context else ""
             f"Macro sentiment settimanale: {macro['summary']}\n"
             f"Prezzo ultimo: {latest_price or '—'} · Variazione WoW: "
             f"{(str(price_change_pct) + '%') if price_change_pct is not None else 'N/A'}.\n\n"
             "TASK: Restituisci SOLO JSON con questa struttura: "
             '{"verdict":"LONG|SHORT|WAIT","confidence":1-5,"summary":"..."}. '
             "Verdetto operazionale sintetico considerando (1) posizionamento istituzionale COT, "
-            "(2) contesto macro ultima settimana, (3) andamento prezzo. Summary max 200 caratteri in italiano."
+            "(2) sentiment di mercato, (3) livelli opzioni e regime GEX se disponibili, "
+            "(4) contesto macro, (5) andamento prezzo. Summary max 200 caratteri in italiano."
         )
         system = "Sei un senior portfolio manager. Risponde solo in JSON valido, nessun commento extra. Solo italiano."
         fallback_json = '{"verdict":"WAIT","confidence":2,"summary":"Dati insufficienti per un verdetto solido."}'

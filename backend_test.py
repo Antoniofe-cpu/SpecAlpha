@@ -401,6 +401,111 @@ async def test_cron_warm_post():
         log_fail("POST /api/cron/warm", f"Exception: {str(e)}")
 
 
+async def test_sentiment_endpoint(asset_id: str):
+    """Test GET /api/sentiment/{asset_id}"""
+    print("\n" + "="*80)
+    print(f"TEST: GET /api/sentiment/{asset_id}")
+    print("="*80)
+    
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.get(f"{BASE_URL}/sentiment/{asset_id}")
+            
+            if response.status_code != 200:
+                log_fail(f"GET /api/sentiment/{asset_id}", f"Status code {response.status_code}")
+                return None
+            
+            data = response.json()
+            
+            # Check required top-level fields
+            required_fields = ["assetId", "assetName", "current", "history", "reportDate"]
+            missing = [f for f in required_fields if f not in data]
+            if missing:
+                log_fail(f"GET /api/sentiment/{asset_id}", f"Missing top-level fields: {missing}")
+                return None
+            
+            # Verify assetId matches
+            if data["assetId"] != asset_id:
+                log_fail(f"GET /api/sentiment/{asset_id}", 
+                        f"AssetId mismatch: expected {asset_id}, got {data['assetId']}")
+                return None
+            
+            # Check current sentiment structure
+            current = data.get("current", {})
+            required_current_fields = ["score", "interpretation", "color", "longPercentage", 
+                                      "shortPercentage", "components", "timestamp"]
+            missing_current = [f for f in required_current_fields if f not in current]
+            if missing_current:
+                log_fail(f"GET /api/sentiment/{asset_id}", 
+                        f"Missing fields in 'current': {missing_current}")
+                return None
+            
+            # Validate score range (-100 to +100)
+            score = current.get("score")
+            if not isinstance(score, (int, float)) or not (-100 <= score <= 100):
+                log_fail(f"GET /api/sentiment/{asset_id}", 
+                        f"Invalid score {score}, expected -100 to +100")
+                return None
+            
+            # Validate percentages sum to 100
+            long_pct = current.get("longPercentage", 0)
+            short_pct = current.get("shortPercentage", 0)
+            total_pct = long_pct + short_pct
+            if abs(total_pct - 100) > 0.1:  # Allow small floating point error
+                log_fail(f"GET /api/sentiment/{asset_id}", 
+                        f"Long + Short percentages = {total_pct}%, expected 100%")
+                return None
+            
+            # Validate interpretation matches score range
+            interpretation = current.get("interpretation", "")
+            if score >= 70 and "Extremely Bullish" not in interpretation:
+                log_warning(f"GET /api/sentiment/{asset_id}", 
+                           f"Score {score} but interpretation is '{interpretation}'")
+            elif score <= -70 and "Extremely Bearish" not in interpretation:
+                log_warning(f"GET /api/sentiment/{asset_id}", 
+                           f"Score {score} but interpretation is '{interpretation}'")
+            
+            # Check components structure
+            components = current.get("components", {})
+            required_components = ["netPosition", "wowDelta", "long", "short"]
+            missing_components = [f for f in required_components if f not in components]
+            if missing_components:
+                log_fail(f"GET /api/sentiment/{asset_id}", 
+                        f"Missing fields in 'components': {missing_components}")
+                return None
+            
+            # Check history structure
+            history = data.get("history", [])
+            if not isinstance(history, list):
+                log_fail(f"GET /api/sentiment/{asset_id}", "History is not a list")
+                return None
+            
+            # Verify history has ~12 items (allow some variance)
+            if len(history) < 10 or len(history) > 14:
+                log_warning(f"GET /api/sentiment/{asset_id}", 
+                           f"History has {len(history)} items, expected ~12")
+            
+            # Check first history entry structure
+            if len(history) > 0:
+                hist_entry = history[0]
+                required_hist_fields = ["date", "score", "interpretation"]
+                missing_hist = [f for f in required_hist_fields if f not in hist_entry]
+                if missing_hist:
+                    log_fail(f"GET /api/sentiment/{asset_id}", 
+                            f"Missing fields in history entry: {missing_hist}")
+                    return None
+            
+            log_pass(f"GET /api/sentiment/{asset_id}", 
+                    f"Score: {score}, Interpretation: {interpretation}, "
+                    f"Long: {long_pct}%, Short: {short_pct}%, History: {len(history)} items")
+            
+            return data
+            
+    except Exception as e:
+        log_fail(f"GET /api/sentiment/{asset_id}", f"Exception: {str(e)}")
+        return None
+
+
 async def main():
     """Run all tests"""
     print("\n" + "="*80)
@@ -418,25 +523,32 @@ async def main():
     # Test 3: COT endpoint for SP500
     await test_cot_endpoint("SP500")
     
-    # Test 4: Verdict endpoints for multiple assets
+    # Test 4: NEW - Sentiment endpoints for multiple assets
+    print("\n⏳ Testing NEW sentiment endpoints...")
+    
+    for asset in ["SP500", "NAS100", "GOLD", "EURUSD"]:
+        await test_sentiment_endpoint(asset)
+        await asyncio.sleep(1)  # Small delay
+    
+    # Test 5: Verdict endpoints for multiple assets (ENHANCED with options & sentiment)
     # Note: We'll test these with delays to avoid rate limits
-    print("\n⏳ Testing verdict endpoints (with delays to avoid rate limits)...")
+    print("\n⏳ Testing ENHANCED verdict endpoints (now includes options & sentiment)...")
     
     for asset in ["SP500", "NAS100", "GOLD", "EURUSD"]:
         await test_verdict_endpoint(asset)
         await asyncio.sleep(2)  # Delay to avoid rate limits
     
-    # Test 5: Performance endpoints
+    # Test 6: Performance endpoints
     print("\n⏳ Testing performance endpoints (with delays to avoid rate limits)...")
     
     for asset in ["SP500", "NAS100", "GOLD", "BTC"]:
         await test_verdict_performance(asset)
         await asyncio.sleep(2)  # Delay to avoid rate limits
     
-    # Test 6: COT refresh
+    # Test 7: COT refresh
     await test_cot_refresh()
     
-    # Test 7: Cron warm endpoints
+    # Test 8: Cron warm endpoints
     await test_cron_warm_get()
     await test_cron_warm_post()
     
