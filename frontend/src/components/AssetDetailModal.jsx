@@ -590,24 +590,40 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                     alternateRowStyles: { fillColor: [16, 16, 22] },
                     head: [[
                         t('modal.perf.col.report'),
+                        t('modal.perf.col.signal'),
                         t('modal.perf.col.conf'),
                         t('modal.perf.col.range'),
-                        t('modal.perf.col.respected_lts'),
-                        t('modal.perf.col.respected_st'),
                     ]],
-                    body: (perf.history || []).slice(0, 15).map((r) => [
-                        r.reportDate || '—',
-                        r.confidence != null ? String(r.confidence) : '—',
-                        r.weekRangePct != null ? `${r.weekRangePct.toFixed(2)}%` : '—',
-                        r.respectedLTS === true ? 'YES' : r.respectedLTS === false ? 'NO' : '—',
-                        r.respectedST === true ? 'YES' : r.respectedST === false ? 'NO' : '—',
-                    ]),
+                    body: (perf.history || []).slice(0, 15).map((r) => {
+                        // Default to LTS for PDF (could be made dynamic with an option)
+                        const sig = r.signalLTS;
+                        const resp = r.respectedLTS;
+                        let rangeStr = '—';
+                        if (r.weekRangePct != null) {
+                            if (resp === true) rangeStr = `+${r.weekRangePct.toFixed(2)}%`;
+                            else if (resp === false) rangeStr = `-${r.weekRangePct.toFixed(2)}%`;
+                            else rangeStr = `${r.weekRangePct.toFixed(2)}%`;
+                        }
+                        return [
+                            r.reportDate || '—',
+                            sig || '—',
+                            r.confidence != null ? String(r.confidence) : '—',
+                            rangeStr,
+                        ];
+                    }),
                     didParseCell: (data) => {
                         if (data.section !== 'body') return;
-                        if (data.column.index === 3 || data.column.index === 4) {
+                        if (data.column.index === 1) {
                             const v = data.cell.text[0];
-                            if (v === 'YES') data.cell.styles.textColor = GREEN;
-                            else if (v === 'NO') data.cell.styles.textColor = RED;
+                            if (v === 'LONG') data.cell.styles.textColor = GREEN;
+                            else if (v === 'SHORT') data.cell.styles.textColor = RED;
+                            else if (v === 'WAIT') data.cell.styles.textColor = MUTED;
+                            data.cell.styles.fontStyle = 'bold';
+                        }
+                        if (data.column.index === 3) {
+                            const v = data.cell.text[0];
+                            if (v && v.startsWith('+')) data.cell.styles.textColor = GREEN;
+                            else if (v && v.startsWith('-')) data.cell.styles.textColor = RED;
                             data.cell.styles.fontStyle = 'bold';
                         }
                     },
@@ -1386,58 +1402,60 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                                             <thead>
                                                                 <tr className="text-[10px] uppercase tracking-[0.2em] text-gray-500 font-semibold border-b border-white/5">
                                                                     <th className="px-2 py-2 text-left">{t('modal.perf.col.report')}</th>
+                                                                    <th className="px-2 py-2 text-left">{t('modal.perf.col.signal')}</th>
                                                                     <th className="px-2 py-2 text-right">{t('modal.perf.col.conf')}</th>
                                                                     <th className="px-2 py-2 text-right">{t('modal.perf.col.range')}</th>
-                                                                    <th className="px-2 py-2 text-center">{t('modal.perf.col.respected_lts')}</th>
-                                                                    <th className="px-2 py-2 text-center">{t('modal.perf.col.respected_st')}</th>
                                                                 </tr>
                                                             </thead>
                                                             <tbody className="font-mono">
-                                                                {performance.history.slice(0, 20).map((r, i) => (
-                                                                    <tr
-                                                                        key={i}
-                                                                        className={cn(
-                                                                            'border-b border-white/[0.04]',
-                                                                            i % 2 === 1 && 'bg-white/[0.02]'
-                                                                        )}
-                                                                    >
-                                                                        <td className="px-2 py-2 text-gray-200">{r.reportDate}</td>
-                                                                        <td className="px-2 py-2 text-right text-amber-300/85">
-                                                                            {r.confidence ?? '—'}
-                                                                        </td>
-                                                                        <td className="px-2 py-2 text-right text-gray-300">
-                                                                            {r.weekRangePct != null ? `${r.weekRangePct.toFixed(2)}%` : '—'}
-                                                                        </td>
-                                                                        <td
+                                                                {performance.history.slice(0, 20).map((r, i) => {
+                                                                    const sigKey = perfMode === 'LTS' ? 'signalLTS' : 'signalST';
+                                                                    const respKey = perfMode === 'LTS' ? 'respectedLTS' : 'respectedST';
+                                                                    const signal = r[sigKey];
+                                                                    const respected = r[respKey];
+                                                                    const rangeVal = r.weekRangePct;
+                                                                    let rangeDisplay = '—';
+                                                                    let rangeColor = 'text-gray-500';
+                                                                    if (rangeVal != null) {
+                                                                        if (respected === true) {
+                                                                            rangeDisplay = `+${rangeVal.toFixed(2)}%`;
+                                                                            rangeColor = 'text-[#34d399]';
+                                                                        } else if (respected === false) {
+                                                                            rangeDisplay = `-${rangeVal.toFixed(2)}%`;
+                                                                            rangeColor = 'text-[#fb7185]';
+                                                                        } else {
+                                                                            rangeDisplay = `${rangeVal.toFixed(2)}%`;
+                                                                            rangeColor = 'text-gray-400';
+                                                                        }
+                                                                    }
+                                                                    return (
+                                                                        <tr
+                                                                            key={i}
                                                                             className={cn(
-                                                                                'px-2 py-2 text-center font-bold',
-                                                                                r.respectedLTS === true && 'text-[#34d399]',
-                                                                                r.respectedLTS === false && 'text-[#fb7185]',
-                                                                                r.respectedLTS == null && 'text-gray-600'
+                                                                                'border-b border-white/[0.04]',
+                                                                                i % 2 === 1 && 'bg-white/[0.02]'
                                                                             )}
                                                                         >
-                                                                            {r.respectedLTS === true
-                                                                                ? t('modal.perf.respected_yes')
-                                                                                : r.respectedLTS === false
-                                                                                ? t('modal.perf.respected_no')
-                                                                                : t('modal.perf.respected_na')}
-                                                                        </td>
-                                                                        <td
-                                                                            className={cn(
-                                                                                'px-2 py-2 text-center font-bold',
-                                                                                r.respectedST === true && 'text-[#34d399]',
-                                                                                r.respectedST === false && 'text-[#fb7185]',
-                                                                                r.respectedST == null && 'text-gray-600'
-                                                                            )}
-                                                                        >
-                                                                            {r.respectedST === true
-                                                                                ? t('modal.perf.respected_yes')
-                                                                                : r.respectedST === false
-                                                                                ? t('modal.perf.respected_no')
-                                                                                : t('modal.perf.respected_na')}
-                                                                        </td>
-                                                                    </tr>
-                                                                ))}
+                                                                            <td className="px-2 py-2 text-gray-200">{r.reportDate}</td>
+                                                                            <td
+                                                                                className={cn(
+                                                                                    'px-2 py-2 font-semibold',
+                                                                                    signal === 'LONG' && 'text-[#34d399]',
+                                                                                    signal === 'SHORT' && 'text-[#fb7185]',
+                                                                                    signal === 'WAIT' && 'text-gray-500'
+                                                                                )}
+                                                                            >
+                                                                                {signal || '—'}
+                                                                            </td>
+                                                                            <td className="px-2 py-2 text-right text-amber-300/85">
+                                                                                {r.confidence ?? '—'}
+                                                                            </td>
+                                                                            <td className={cn('px-2 py-2 text-right font-semibold', rangeColor)}>
+                                                                                {rangeDisplay}
+                                                                            </td>
+                                                                        </tr>
+                                                                    );
+                                                                })}
                                                             </tbody>
                                                         </table>
                                                     </div>
