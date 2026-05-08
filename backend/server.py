@@ -47,6 +47,7 @@ from price_scraper import (
 from options_scraper import get_options_analytics, OPTIONS_MAP
 from sentiment_calculator import calculate_sentiment_from_cot, calculate_sentiment_history
 from myfxbook_scraper import get_myfxbook_positioning
+from ig_sentiment_scraper import fetch_ig_sentiment
 from fear_greed_scraper import get_retail_sentiment
 from price_scraper import fetch_daily_closes, YAHOO_SYMBOL
 
@@ -77,12 +78,12 @@ ALPHA_VANTAGE_API_KEY = os.environ.get("ALPHA_VANTAGE_API_KEY")
 _GEMINI_LOCK = asyncio.Lock()  # serialise Gemini calls (free tier = 15 RPM)
 
 
-async def _gemini_direct_call(system: str, user: str, api_key: Optional[str] = None, max_retries: int = 0) -> Optional[str]:
+async def _gemini_direct_call(system: str, user: str, api_key: Optional[str] = None, max_retries: int = 2) -> Optional[str]:
     """Call Google Gemini API directly via google-genai SDK.
 
     Returns the response text, or None on failure / when no API key is available.
     Serialises calls with a lock to avoid free-tier 429 rate limits.
-    On 429 we fail fast and let the caller decide (rotate to next key / fallback).
+    On 429 we fail fast (rotate keys / fallback). On 503 (transient overload) we retry.
     """
     key = api_key or GEMINI_API_KEY
     if not key:
@@ -114,10 +115,14 @@ async def _gemini_direct_call(system: str, user: str, api_key: Optional[str] = N
             except Exception as e:  # noqa: BLE001
                 msg = str(e)[:200]
                 is_429 = "429" in msg or "RESOURCE_EXHAUSTED" in msg or "quota" in msg.lower()
-                if attempt >= max_retries or is_429:
+                is_503 = "503" in msg or "UNAVAILABLE" in msg or "overload" in msg.lower()
+                if is_429 or attempt >= max_retries:
                     logger.warning("Gemini call failed (key=…%s): %s", key[-4:] if key else "?", msg)
                     return None
-                await asyncio.sleep(2)
+                # 503 → exponential backoff (Gemini "high demand")
+                wait = 3 * (2 ** attempt) if is_503 else 2
+                logger.info("Gemini transient error, retrying in %ss: %s", wait, msg[:80])
+                await asyncio.sleep(wait)
                 attempt += 1
         return None
 
@@ -606,7 +611,11 @@ async def get_sentiment(asset_id: str) -> Dict[str, Any]:
     # Try MyFxBook REAL positioning first
     retail_positioning = await get_myfxbook_positioning(asset_id)
     
-    # Fallback to Fear & Greed for crypto if MyFxBook unavailable
+    # Fallback 1: IG.com client sentiment (covers indices + commodities not in MyFxBook)
+    if not retail_positioning:
+        retail_positioning = await fetch_ig_sentiment(asset_id)
+    
+    # Fallback 2: Fear & Greed for crypto if everything else unavailable
     if not retail_positioning and asset_id in {"BTC", "ETH"}:
         retail_positioning = await get_retail_sentiment(asset_id)
     
@@ -1436,4 +1445,9 @@ async def on_shutdown() -> None:
     for task in (_refresh_task, _warm_task):
         if task:
             task.cancel()
+    try:
+        from ig_sentiment_scraper import shutdown_ig_scraper
+        await shutdown_ig_scraper()
+    except Exception:
+        pass
     client.close()
