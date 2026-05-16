@@ -1437,7 +1437,7 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                                                     <th className="px-2 py-2 text-left">{t('modal.perf.col.report')}</th>
                                                                     <th className="px-2 py-2 text-right">CI</th>
                                                                     <th className="px-2 py-2 text-left">DIR</th>
-                                                                    <th className="px-2 py-2 text-right">{t('modal.perf.col.range')}</th>
+                                                                    <th className="px-2 py-2 text-right">OUTCOME</th>
                                                                 </tr>
                                                             </thead>
                                                             <tbody className="font-mono">
@@ -1446,19 +1446,17 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                                                     const dir = (r.direction || 'neutral').toUpperCase();
                                                                     const respected = r.respected;
                                                                     const rangeVal = r.weekRangePct;
-                                                                    let rangeDisplay = '—';
-                                                                    let rangeColor = 'text-gray-500';
-                                                                    if (rangeVal != null) {
-                                                                        if (respected === true) {
-                                                                            rangeDisplay = `+${rangeVal.toFixed(2)}%`;
-                                                                            rangeColor = 'text-[#34d399]';
-                                                                        } else if (respected === false) {
-                                                                            rangeDisplay = `-${rangeVal.toFixed(2)}%`;
-                                                                            rangeColor = 'text-[#fb7185]';
-                                                                        } else {
-                                                                            rangeDisplay = `${rangeVal.toFixed(2)}%`;
-                                                                            rangeColor = 'text-gray-400';
-                                                                        }
+                                                                    // OUTCOME: respected=true → green ✓ +X%; respected=false → red ✗ -X%
+                                                                    let outcomeDisplay = '—';
+                                                                    let outcomeColor = 'text-gray-500';
+                                                                    if (rangeVal != null && respected != null) {
+                                                                        const sign = respected ? '+' : '-';
+                                                                        const icon = respected ? '✓' : '✗';
+                                                                        outcomeDisplay = `${icon} ${sign}${rangeVal.toFixed(2)}%`;
+                                                                        outcomeColor = respected ? 'text-[#34d399]' : 'text-[#fb7185]';
+                                                                    } else if (rangeVal != null) {
+                                                                        outcomeDisplay = `${rangeVal.toFixed(2)}%`;
+                                                                        outcomeColor = 'text-gray-400';
                                                                     }
                                                                     const ciColor =
                                                                         ci >= 80 ? 'text-amber-200' :
@@ -1485,8 +1483,8 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                                                             )}>
                                                                                 {dir}
                                                                             </td>
-                                                                            <td className={cn('px-2 py-2 text-right font-semibold', rangeColor)}>
-                                                                                {rangeDisplay}
+                                                                            <td className={cn('px-2 py-2 text-right font-semibold', outcomeColor)}>
+                                                                                {outcomeDisplay}
                                                                             </td>
                                                                         </tr>
                                                                     );

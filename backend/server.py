@@ -47,6 +47,7 @@ from price_scraper import (
 from options_scraper import get_options_analytics, OPTIONS_MAP
 from sentiment_calculator import calculate_sentiment_from_cot, calculate_sentiment_history
 from confluence_index import calculate_confluence_index
+from historical_options import historical_options_signal as _hist_opt_signal
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -1175,8 +1176,21 @@ async def verdict_performance(asset_id: str) -> Dict[str, Any]:
         if not rd:
             continue
         # Compute Confluence Index for THIS historical week
-        # (options data not historical → options neutral, weights stay 40/40/20)
-        ci = calculate_confluence_index(row, options_data=None)
+        # Options proxy via volatility index (VIX/GVZ/OVX) when available.
+        opt_sig = _hist_opt_signal(asset_id, rd)
+        opt_data = None
+        if opt_sig is not None:
+            # Inject a synthetic options blob whose calculate_confluence_index sees
+            # the signed signal directly via netGex sign + a complementary PCR proxy.
+            # We pass the raw signed score through pcr because that's where the
+            # primary weight (60%) of the options component sits.
+            # `options_direction` then ≈ 0.6 * pcr_signal + 0.4 * gex_signal.
+            # Map -1..+1 to a PCR-equivalent: pcr = 1 - (signed/1.2)
+            pcr_proxy = max(0.1, 1.0 - opt_sig / 1.2)
+            gex_proxy = opt_sig * 1e9
+            opt_data = {"putCallRatioOI": pcr_proxy, "netGex": gex_proxy}
+
+        ci = calculate_confluence_index(row, options_data=opt_data)
         score = ci["score"]
         direction = ci["direction"]
         comp = ci.get("components", {})

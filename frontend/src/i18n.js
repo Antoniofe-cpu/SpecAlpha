@@ -188,9 +188,9 @@ const STR = {
         'modal.show': 'Mostra',
         'modal.hide': 'Nascondi',
         'modal.perf_logic':
-            'Metodo: per ogni report COT della settimana A, ricostruiamo il Confluence Index storico (COT NET + Sentiment via retail NET, pesi 40/40/20 con Options=0 perché non disponibile retroattivamente) e osserviamo l\'azione del prezzo nella settimana successiva A+1 (lun-ven). Il segnale è "rispettato" se la direzione implicita è stata confermata: per LONG il minimo settimanale deve arrivare PRIMA del massimo; per SHORT il massimo deve arrivare PRIMA del minimo.',
+            'Metodo: per ogni report COT della settimana A, ricostruiamo il Confluence Index storico (COT NET + Sentiment via retail NET + Opzioni via proxy VIX-family (VIX/VXN/VXD/RVX/GVZ/OVX), pesi 40/40/20) e osserviamo l\'azione del prezzo nella settimana successiva A+1 (lun-ven). Il segnale è "rispettato" se la direzione implicita è stata confermata: per LONG il minimo settimanale deve arrivare PRIMA del massimo; per SHORT il massimo deve arrivare PRIMA del minimo.',
         'modal.perf_synth_note':
-            'Disclaimer: questa metrica NON è un backtest di trading (no entry, no stop, no slippage). Misura quanto frequentemente la direzione del Confluence Index si è verificata nella settimana successiva. Il filtro per band (HIGH / VERY HIGH) mostra come la qualità del segnale aumenta quando i 3 stream sono fortemente concordi. Accuracy >55% è rilevante; 50% è random.',
+            'Disclaimer: questa metrica NON è un backtest di trading (no entry, no stop, no slippage). Misura quanto frequentemente la direzione del Confluence Index si è verificata nella settimana successiva. Filtri per band (HIGH ≥60 / VERY HIGH ≥80): mostrano come l\'accuracy aumenta quando i 3 stream sono fortemente concordi. >55% è rilevante; 50% è random.',
         'modal.perf_loading': 'Calcolo track record…',
         'modal.perf.mode_lts': 'LONG-TERM & SHORT-TERM',
         'modal.perf.mode_st': 'SHORT-TERM',
@@ -240,7 +240,7 @@ const STR = {
             "L'Open Interest è il totale dei contratti aperti sul mercato. L'OI Share Non-Commercial è la percentuale di Open Interest controllata dai grandi speculatori (Long + Short). Sopra 50% = mercato dominato dagli speculativi: i trend possono essere più direzionali ma più vulnerabili a unwinding forzati. Sotto 30% = mercato guidato dagli operatori commerciali (hedger), trend più lenti e strutturali.",
         'help.s.intensity.title': 'Intensity Index (0-100)',
         'help.s.intensity.body':
-            "L'Intensity Index è una misura sintetica della convinzione direzionale degli Non-Commercial, ottenuta normalizzando la Net Position sul totale delle posizioni speculative. 50 = posizionamento neutro (long ≈ short); valori > 70 = forte bias rialzista istituzionale; valori < 30 = forte bias ribassista. Valori estremi (> 85 o < 15) segnalano crowded trade: attenzione a unwinding o squeeze.",
+            "L'Intensity Index misura la FORZA INTRINSECA del posizionamento dei Non-Commercial, indipendentemente dalla direzione. È il valore assoluto di Net Position / Open Interest speculativo: 0 = libro perfettamente bilanciato (long ≈ short), 100 = posizionamento massimamente unilaterale (tutti long oppure tutti short). Un Intensity di 70 indica conviction estrema, sia che il book sia 85% long o 85% short. Valori > 80 sono tipici di crowded trade: attenzione a unwinding e squeeze in entrambe le direzioni.",
         'help.s.fx.title': 'Forex Strength Index',
         'help.s.fx.body':
             'Confronta la forza assoluta di tutte le valute vs USD basandosi sui flussi Non-Commercial. Identifica automaticamente: la valuta più forte, la più debole, le opportunità su pair forex (es. EUR forte + JPY debole → EURJPY long) e i trend assoluti dove momentum e posizionamento si confermano.',
@@ -503,9 +503,9 @@ const STR = {
         'modal.show': 'Show',
         'modal.hide': 'Hide',
         'modal.perf_logic':
-            'Method: for each historical COT week we recompute the Confluence Index (COT NET + Sentiment via retail NET, weights 40/40/20 with Options=0 since not retroactive) and observe price action in the following week (Mon-Fri). A signal is "respected" if its implied direction was confirmed chronologically: for LONG the weekly low must come BEFORE the weekly high; for SHORT the weekly high must come BEFORE the weekly low.',
+            'Method: for each historical COT week we recompute the Confluence Index (COT NET + Sentiment via retail NET + Options via VIX-family proxy (VIX/VXN/VXD/RVX/GVZ/OVX), weights 40/40/20) and observe price action in the following week (Mon-Fri). A signal is "respected" if its implied direction was confirmed chronologically: for LONG the weekly low must come BEFORE the weekly high; for SHORT the weekly high must come BEFORE the weekly low.',
         'modal.perf_synth_note':
-            'Disclaimer: NOT a trading backtest (no entry, stop, slippage). Measures how often the Confluence Index direction was confirmed the following week. Filtering by band (HIGH / VERY HIGH) reveals how signal quality scales with stream agreement. Accuracy >55% is meaningful; 50% is random.',
+            'Disclaimer: NOT a trading backtest (no entry, stop, slippage). Measures how often the Confluence Index direction was confirmed the following week. Filtering by band (HIGH ≥60 / VERY HIGH ≥80) reveals how accuracy scales with stream agreement. >55% is meaningful; 50% is random.',
         'modal.perf_loading': 'Computing track record…',
         'modal.perf.mode_lts': 'LONG-TERM & SHORT-TERM',
         'modal.perf.mode_st': 'SHORT-TERM',
@@ -554,7 +554,7 @@ const STR = {
             'Open Interest is the total of open contracts in the market. Non-Commercial OI Share is the percentage of Open Interest controlled by large speculators (Long + Short). Above 50% = market dominated by speculators: trends can be more directional but also more vulnerable to forced unwinding. Below 30% = market driven by commercial hedgers, slower and more structural trends.',
         'help.s.intensity.title': 'Intensity Index (0-100)',
         'help.s.intensity.body':
-            'The Intensity Index is a synthetic measure of Non-Commercial directional conviction, normalising Net Position over total speculative positions. 50 = neutral (long ≈ short); values > 70 = strong institutional bullish bias; values < 30 = strong bearish bias. Extreme values (> 85 or < 15) indicate crowded trades: watch for unwinding or squeezes.',
+            'The Intensity Index measures the INTRINSIC STRENGTH of Non-Commercial positioning, regardless of direction. It is the absolute value of Net Position / speculative Open Interest: 0 = perfectly balanced book (long ≈ short), 100 = maximally one-sided positioning (all long or all short). An Intensity of 70 signals extreme conviction whether the book is 85% long or 85% short. Values > 80 are typical of crowded trades: watch for unwinding and squeezes in either direction.',
         'help.s.fx.title': 'Forex Strength Index',
         'help.s.fx.body':
             'Compares the absolute strength of every currency vs USD based on Non-Commercial flows. Automatically identifies: the strongest currency, the weakest, forex pair opportunities (e.g. strong EUR + weak JPY → long EURJPY) and absolute trends where momentum and positioning agree.',
