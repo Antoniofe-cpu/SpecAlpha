@@ -122,31 +122,42 @@ export default function AssetCard({ asset, isLoading, isFavorite, onClick, onTog
                 {t(trend.signalKey)}
             </div>
 
-            {/* Confluence Index — proprietary 0-100 probability score */}
+            {/* Confluence Index — proprietary 0-100 agreement strength */}
             {asset.confluenceIndex !== undefined && asset.confluenceIndex !== null && (() => {
                 const ci = Number(asset.confluenceIndex);
-                const ciTone = ci >= 65 ? 'bull' : ci >= 55 ? 'mildbull' : ci > 45 ? 'neutral' : ci > 35 ? 'mildbear' : 'bear';
-                const ciStyles = {
-                    bull: 'from-[#10b981]/15 to-[#10b981]/5 border-[#10b981]/35 text-[#34d399]',
-                    mildbull: 'from-[#34d399]/12 to-transparent border-[#34d399]/30 text-[#34d399]',
-                    neutral: 'from-amber-500/10 to-transparent border-amber-500/30 text-amber-300',
-                    mildbear: 'from-[#fb7185]/12 to-transparent border-[#fb7185]/30 text-[#fb7185]',
-                    bear: 'from-[#f43f5e]/15 to-[#f43f5e]/5 border-[#f43f5e]/35 text-[#fb7185]',
+                // Color reflects STRENGTH of confluence (not direction)
+                const strengthTone = ci >= 80 ? 'veryhigh' : ci >= 60 ? 'high' : ci >= 40 ? 'moderate' : ci >= 20 ? 'low' : 'verylow';
+                const strengthStyles = {
+                    veryhigh: 'from-amber-400/20 to-amber-500/10 border-amber-400/50 text-amber-200',
+                    high: 'from-amber-500/15 to-amber-500/5 border-amber-500/40 text-amber-300',
+                    moderate: 'from-white/[0.06] to-transparent border-white/15 text-gray-200',
+                    low: 'from-white/[0.04] to-transparent border-white/10 text-gray-400',
+                    verylow: 'from-white/[0.02] to-transparent border-white/5 text-gray-500',
                 };
+                const dir = asset.confluenceDirection || 'neutral';
+                const dirIcon = dir === 'long' ? '▲' : dir === 'short' ? '▼' : '◆';
+                const dirColor = dir === 'long' ? 'text-[#34d399]' : dir === 'short' ? 'text-[#fb7185]' : 'text-gray-500';
                 return (
                     <div
                         data-testid={`confluence-index-${asset.assetId}`}
                         className={cn(
                             'rounded-2xl border bg-gradient-to-br p-3.5 mb-6 flex items-center justify-between',
-                            ciStyles[ciTone]
+                            strengthStyles[strengthTone]
                         )}
                     >
                         <div>
                             <div className="text-[9.5px] tracking-[0.26em] uppercase text-gray-400 font-bold mb-0.5">
                                 Confluence Index
                             </div>
-                            <div className="text-[12px] font-bold tracking-tight">
+                            <div className="flex items-center gap-1.5 text-[12px] font-bold tracking-tight">
                                 {asset.confluenceLabel || '—'}
+                                <span
+                                    className={cn('text-[11px] font-mono leading-none', dirColor)}
+                                    title={`Direzione segnale: ${dir}`}
+                                    data-testid={`confluence-direction-${asset.assetId}`}
+                                >
+                                    {dirIcon}
+                                </span>
                             </div>
                         </div>
                         <div className="text-right">

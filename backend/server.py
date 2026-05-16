@@ -391,10 +391,11 @@ class CotSnapshot(BaseModel):
     retailPctShort: Optional[float] = None
     retailLongPctChange: Optional[float] = None
     retailShortPctChange: Optional[float] = None
-    # Proprietary Confluence Index (0-100): probability of bullish move next week
+    # Proprietary Confluence Index (0-100): strength of agreement across COT + Options + Sentiment
     confluenceIndex: Optional[float] = None
     confluenceComponents: Optional[Dict[str, Any]] = None
     confluenceLabel: Optional[str] = None
+    confluenceDirection: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -462,6 +463,7 @@ async def _fetch_snapshot(asset_id: str, force: bool = False, lang: str = "it") 
         ci = calculate_confluence_index(snapshot, options_data)
         snapshot["confluenceIndex"] = ci["score"]
         snapshot["confluenceLabel"] = ci["label"]
+        snapshot["confluenceDirection"] = ci["direction"]
         snapshot["confluenceComponents"] = ci["components"]
     except Exception as e:  # noqa: BLE001
         logger.warning("Confluence index computation failed for %s: %s", asset_id, e)
