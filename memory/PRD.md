@@ -168,6 +168,44 @@
   - **User action required**: top up Emergent Universal Key OR upgrade Gemini API key to paid tier — otherwise the macro insight will continue to fall back to the deterministic template.
 
 
+## Latest Session (Feb 2026) — Round 13 (Phase 1: AI batching, COT-only sentiment, Confluence Index)
+
+### AI batch caching (no inline Gemini on user requests)
+- `/api/cot/{asset_id}`, `/api/macro/{asset_id}`, `/api/verdict/{asset_id}` now serve from `ai_insight_cache` or deterministic fallback. They DO NOT call Gemini inline.
+- Gemini is invoked only in two contexts:
+  1. Startup background task `_prewarm_ai_insights(scope="core", lang="it")`
+  2. Saturday refresh loop (after COT release)
+  3. Manual trigger via `POST /api/cron/ai-prewarm?scope=all&lang=it`
+- Cache is keyed by `(kind, asset, reportDate, lang)` and lives forever until the next COT report — so the free-tier Gemini quota covers a weekly batch and never throttles user requests.
+
+### COT-only sentiment (removed all external scrapers)
+- Deleted files: `myfxbook_scraper.py`, `ig_sentiment_scraper.py`, `fear_greed_scraper.py`, `tradingview_scraper.py`
+- New `/api/sentiment/{asset_id}` is fed exclusively from the CFTC COT report:
+  - Non-Commercials → "Institutional" view (smart money)
+  - Commercials → "Retail" view (relabelled per product spec, used for contrarian signal)
+  - Score formula `score = (retail_long_pct - 50) * 2`, range -100…+100
+  - Contrarian: long ≥ 60% → SELL; ≤ 40% → BUY
+
+### COT scraper expanded
+- `cot_scraper._parse_legacy_report` now extracts both Non-Commercial AND Commercial blocks from the same table.
+- New snapshot fields: `retailLong`, `retailShort`, `retailChangeLong`, `retailChangeShort`, `retailNetPosition`, `retailWowDelta`, `retailPctLong`, `retailPctShort`, `retailLongPctChange`, `retailShortPctChange`.
+
+### Proprietary Confluence Index (0-100)
+- New module `confluence_index.py` synthesises three streams into a single weekly probability score:
+  - **COT 40%**: Non-Commercials net positioning (60%) + WoW momentum (40%)
+  - **Options 40%**: Put/Call ratio (60%) + Net GEX sign (40%)
+  - **Sentiment 20%**: Contrarian inverse of Commercials/retail long%
+- Exposed on every snapshot as `confluenceIndex`, `confluenceLabel`, `confluenceComponents`.
+- Frontend: prominent badge on every `AssetCard` (above Net Position) with `data-testid="confluence-index-{assetId}"`.
+- Label scale: Strong Bearish / Bearish / Mildly Bearish / Neutral / Mildly Bullish / Bullish / Strong Bullish.
+
+### Backlog (deferred to Phase 2/3/4 sessions)
+- P2 (Phase 3): Google OAuth + user accounts + soft paywall + landing page redesign
+- P2 (Phase 4): Sunday Insider newsletter with referral system
+- P3 (Phase 4): Anti-scraping/security (Canvas rendering, WebSocket, fingerprinting, watermarking)
+- P3: Retail Long/Short line in the COT detail chart of `AssetDetailModal`
+
+
 ## Latest Session (Feb 2026) — Round 12 (MyFxBook auth fix + contrarian-aligned sentiment score)
 - **MyFxBook authentication fixed** (was failing with `Invalid Session` on every call after successful login):
   - Root cause: MyFxBook returns a URL-encoded session token (e.g. `…%2B…%3D%3D`); httpx `params=` re-encoded it, breaking the next call.

@@ -104,6 +104,10 @@ def _parse_legacy_report(html: str) -> Dict[str, Any]:
     long_pos = short_pos = 0
     change_long = change_short = 0
     pct_long = pct_short = 0.0
+    # Commercials (rebranded "Retail" in UI per product requirement)
+    comm_long = comm_short = 0
+    comm_change_long = comm_change_short = 0
+    comm_pct_long = comm_pct_short = 0.0
 
     tables = soup.find_all("table")
     for table in tables:
@@ -137,8 +141,12 @@ def _parse_legacy_report(html: str) -> Dict[str, Any]:
             continue
 
         positions_row = rows_cells[idx_positions]
+        # Layout (legacy futures): NC Long | NC Short | NC Spreads | Comm Long | Comm Short | Total L | Total S | NonRep L | NonRep S
         long_pos = _to_int(positions_row[0])
         short_pos = _to_int(positions_row[1])
+        if len(positions_row) >= 5:
+            comm_long = _to_int(positions_row[3])
+            comm_short = _to_int(positions_row[4])
 
         # Look for next numeric row after a "Changes" label - search subsequent rows
         for j in range(idx_positions + 1, len(rows_cells)):
@@ -146,12 +154,18 @@ def _parse_legacy_report(html: str) -> Dict[str, Any]:
                 changes_row = rows_cells[j]
                 change_long = _to_int(changes_row[0])
                 change_short = _to_int(changes_row[1])
+                if len(changes_row) >= 5:
+                    comm_change_long = _to_int(changes_row[3])
+                    comm_change_short = _to_int(changes_row[4])
                 # Now look for percent row
                 for k in range(j + 1, len(rows_cells)):
                     if is_numeric_row(rows_cells[k]):
                         pct_row = rows_cells[k]
                         pct_long = _to_float(pct_row[0])
                         pct_short = _to_float(pct_row[1])
+                        if len(pct_row) >= 5:
+                            comm_pct_long = _to_float(pct_row[3])
+                            comm_pct_short = _to_float(pct_row[4])
                         break
                 break
         break
@@ -162,6 +176,13 @@ def _parse_legacy_report(html: str) -> Dict[str, Any]:
     intensity = round(min(100, max(0, 50 + (net_position / total) * 100)))
     long_pct_change = round((change_long / long_pos) * 100, 2) if long_pos else 0.0
     short_pct_change = round((change_short / short_pos) * 100, 2) if short_pos else 0.0
+
+    # Commercials ("Retail" in the UI)
+    retail_net = comm_long - comm_short
+    retail_wow_delta = comm_change_long - comm_change_short
+    retail_total = comm_long + comm_short or 1
+    retail_long_pct_change = round((comm_change_long / comm_long) * 100, 2) if comm_long else 0.0
+    retail_short_pct_change = round((comm_change_short / comm_short) * 100, 2) if comm_short else 0.0
 
     return {
         "long": long_pos,
@@ -178,6 +199,17 @@ def _parse_legacy_report(html: str) -> Dict[str, Any]:
         "shortPctChange": short_pct_change,
         "intensityIndex": intensity,
         "reportDate": report_date or "Latest",
+        # Retail trader block (CFTC Commercials, renamed for UX)
+        "retailLong": comm_long,
+        "retailShort": comm_short,
+        "retailChangeLong": comm_change_long,
+        "retailChangeShort": comm_change_short,
+        "retailNetPosition": retail_net,
+        "retailWowDelta": retail_wow_delta,
+        "retailPctLong": comm_pct_long,
+        "retailPctShort": comm_pct_short,
+        "retailLongPctChange": retail_long_pct_change,
+        "retailShortPctChange": retail_short_pct_change,
     }
 
 

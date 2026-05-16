@@ -46,10 +46,7 @@ from price_scraper import (
 )
 from options_scraper import get_options_analytics, OPTIONS_MAP
 from sentiment_calculator import calculate_sentiment_from_cot, calculate_sentiment_history
-from myfxbook_scraper import get_myfxbook_positioning
-from ig_sentiment_scraper import fetch_ig_sentiment
-from fear_greed_scraper import get_retail_sentiment
-from price_scraper import fetch_daily_closes, YAHOO_SYMBOL
+from confluence_index import calculate_confluence_index
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -148,6 +145,33 @@ async def _ai_text(system: str, user: str) -> Optional[str]:
 # ---------------------------------------------------------------------------
 # AI Insight (Gemini via emergentintegrations)
 # ---------------------------------------------------------------------------
+
+def _macro_fallback_text(asset_id: str, snapshot: Dict[str, Any], lang: str = "it") -> str:
+    """Deterministic Bloomberg-style fallback text used when AI cache is empty.
+
+    Cheap, synchronous, no external calls. Served from the user request path.
+    """
+    delta = snapshot.get("wowDelta", 0) or 0
+    net = snapshot.get("netPosition", 0) or 0
+    sentiment = "Bullish Flow" if delta > 0 else "Bearish Flow"
+    if lang == "en":
+        if abs(delta) > 10000:
+            action = "Strong Accumulation" if delta > 0 else "Strong Distribution"
+        else:
+            action = "Accumulation" if delta > 0 else "Distribution"
+        return (
+            f"Mood: {sentiment}. {action} Non-Commercial. "
+            f"Net {net:+,} (Δ {delta:+,}). Watch price/positioning divergence."
+        )
+    if abs(delta) > 10000:
+        action = "Forte Accumulo" if delta > 0 else "Forte Distribuzione"
+    else:
+        action = "Accumulo" if delta > 0 else "Distribuzione"
+    return (
+        f"Mood: {sentiment}. {action} Non-Commercial. "
+        f"Net {net:+,} (Δ {delta:+,}). Watch divergenza prezzo/posizioni."
+    )
+
 
 async def generate_macro_insight(asset_id: str, snapshot: Dict[str, Any], lang: str = "it") -> Tuple[str, bool]:
     """Generate a short institutional-style macro insight using Gemini.
@@ -356,6 +380,21 @@ class CotSnapshot(BaseModel):
     reportDate: str
     macro: Optional[str] = None
     fetchedAt: Optional[str] = None
+    # Retail traders (CFTC Commercials, renamed for UX)
+    retailLong: Optional[int] = None
+    retailShort: Optional[int] = None
+    retailChangeLong: Optional[int] = None
+    retailChangeShort: Optional[int] = None
+    retailNetPosition: Optional[int] = None
+    retailWowDelta: Optional[int] = None
+    retailPctLong: Optional[float] = None
+    retailPctShort: Optional[float] = None
+    retailLongPctChange: Optional[float] = None
+    retailShortPctChange: Optional[float] = None
+    # Proprietary Confluence Index (0-100): probability of bullish move next week
+    confluenceIndex: Optional[float] = None
+    confluenceComponents: Optional[Dict[str, Any]] = None
+    confluenceLabel: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -397,9 +436,9 @@ async def _fetch_snapshot(asset_id: str, force: bool = False, lang: str = "it") 
         **raw,
     }
     report_date = str(snapshot.get("reportDate") or "")
-    # 1) Try the permanent AI insight cache (keyed on reportDate). If a macro
-    #    insight already exists for THIS exact report, reuse it forever — only
-    #    when a new COT report arrives (different reportDate) we regenerate.
+    # AI insight: ALWAYS serve from cache or deterministic fallback.
+    # The real Gemini call happens in the background prewarm task (see _prewarm_ai_insights)
+    # so that the user request path is fast and never hits AI rate limits.
     cached_macro = None
     if report_date:
         cached = await get_ai_insight("macro", asset_id, report_date, lang)
@@ -408,19 +447,24 @@ async def _fetch_snapshot(asset_id: str, force: bool = False, lang: str = "it") 
 
     if cached_macro:
         snapshot["macro"] = cached_macro
-        used_fallback = False
     else:
-        macro_text, used_fallback = await generate_macro_insight(asset_id, snapshot, lang=lang)
-        snapshot["macro"] = macro_text
-        # Persist ALWAYS (even fallback text is better than re-generating on every request)
-        # Real AI insights have fallback=False, deterministic fallbacks have fallback=True
-        if report_date:
-            await set_ai_insight("macro", asset_id, report_date, lang, {
-                "text": macro_text,
-                "fallback": used_fallback,
-            })
+        # Deterministic fallback only — no Gemini call inline
+        snapshot["macro"] = _macro_fallback_text(asset_id, snapshot, lang=lang)
 
     snapshot["fetchedAt"] = _now().isoformat()
+    # Compute the proprietary Confluence Index (uses COT + cached options if available)
+    try:
+        options_data = None
+        if asset_id in OPTIONS_MAP:
+            opt_doc = await db[OPTIONS_COLL].find_one({"_id": asset_id}, {"_id": 0})
+            if opt_doc and "data" in opt_doc:
+                options_data = opt_doc["data"]
+        ci = calculate_confluence_index(snapshot, options_data)
+        snapshot["confluenceIndex"] = ci["score"]
+        snapshot["confluenceLabel"] = ci["label"]
+        snapshot["confluenceComponents"] = ci["components"]
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Confluence index computation failed for %s: %s", asset_id, e)
     # Always cache the scrape result (short TTL keeps page loads snappy);
     # the AI text inside is stable thanks to the permanent insight cache above.
     await set_cached(asset_id, snapshot, lang=lang)
@@ -522,6 +566,18 @@ async def cron_warm() -> Dict[str, Any]:
     return {"status": "warm started", "time": _now().isoformat()}
 
 
+@app.post("/api/cron/ai-prewarm")
+async def cron_ai_prewarm(scope: str = Query("all"), lang: str = Query("it")) -> Dict[str, Any]:
+    """Trigger the weekly AI insight prewarm in background.
+
+    Runs Gemini once per (asset, reportDate, lang) and stores result forever.
+    Subsequent user requests serve cached text with zero AI calls.
+    Designed to be called manually after a new COT release (Friday/Saturday).
+    """
+    asyncio.create_task(_prewarm_ai_insights(scope=scope, lang=lang))
+    return {"status": "ai prewarm started", "scope": scope, "lang": lang, "time": _now().isoformat()}
+
+
 # ---------------------------------------------------------------------------
 # Options & GEX (refreshed weekly, cached per (asset, expiry))
 # ---------------------------------------------------------------------------
@@ -587,155 +643,145 @@ async def _options_with_underlying(asset_id: str) -> Optional[Dict[str, Any]]:
 
 
 # ---------------------------------------------------------------------------
-# Sentiment Calculator (MyFxBook REAL Positioning + Yahoo Finance Prices)
-# CONTRARIAN STRATEGY: Trade AGAINST retail crowd positioning
+# Sentiment Calculator (COT-only — Non-Commercials = Institutional, Commercials = Retail)
+# CONTRARIAN STRATEGY: Trade AGAINST retail (Commercials) positioning
 # ---------------------------------------------------------------------------
 @api.get("/sentiment/{asset_id}")
 async def get_sentiment(asset_id: str) -> Dict[str, Any]:
-    """Calculate market sentiment from REAL retail positioning (MyFxBook verified accounts).
-    
-    PRIMARY SOURCE: MyFxBook Community Outlook (real trader positioning)
-    - Works for forex, gold, silver, oil, BTC
-    - Real long/short percentages from verified live accounts
-    
-    CONTRARIAN LOGIC:
-    - >70% long → Overextended → SELL signal
-    - <30% long → Capitulated → BUY signal
-    
-    Returns sentiment with REAL positioning data.
+    """Calculate market sentiment from CFTC COT data.
+
+    SOURCE: CFTC Commitments of Traders (weekly, Friday close)
+    - Non-Commercials → Institutional positioning (smart money)
+    - Commercials → Retail positioning (the "crowd" we fade contrarian-style)
+
+    CONTRARIAN LOGIC (on retail/Commercials):
+    - retail long% >= 70 → Overextended → SELL signal
+    - retail long% <= 30 → Capitulated → BUY signal
     """
     asset_id = asset_id.upper()
     if asset_id not in ASSET_MAP:
         raise HTTPException(status_code=404, detail="Unknown asset")
-    
-    # Try MyFxBook REAL positioning first
-    retail_positioning = await get_myfxbook_positioning(asset_id)
-    
-    # Fallback 1: IG.com client sentiment (covers indices + commodities not in MyFxBook)
-    if not retail_positioning:
-        retail_positioning = await fetch_ig_sentiment(asset_id)
-    
-    # Fallback 2: Fear & Greed for crypto if everything else unavailable
-    if not retail_positioning and asset_id in {"BTC", "ETH"}:
-        retail_positioning = await get_retail_sentiment(asset_id)
-    
-    # Build response
-    if retail_positioning:
-        long_pct = retail_positioning["longPercentage"]
-        short_pct = retail_positioning["shortPercentage"]
-        
-        # CROWD SCORE: aligned with retail positioning
-        # 75% long crowd → score +50 (Bullish crowd)
-        # 25% long crowd → score -50 (Bearish crowd)
-        score = (long_pct - 50) * 2
-        
-        # Interpretation reflects the crowd positioning
-        if score >= 70:
-            interpretation = "Extremely Bullish"
-            color = "#10b981"
-        elif score >= 40:
-            interpretation = "Bullish"
-            color = "#34d399"
-        elif score >= 10:
-            interpretation = "Slightly Bullish"
-            color = "#34d399"
-        elif score > -10:
-            interpretation = "Neutral"
-            color = "#94a3b8"
-        elif score > -40:
-            interpretation = "Slightly Bearish"
-            color = "#fb7185"
-        elif score > -70:
-            interpretation = "Bearish"
-            color = "#f43f5e"
-        else:
-            interpretation = "Extremely Bearish"
-            color = "#f43f5e"
-        
-        # Determine contrarian signal
-        if long_pct >= 70:
-            signal = "SELL"
-            strength = "Strong"
-        elif long_pct >= 60:
-            signal = "SELL"
-            strength = "Weak"
-        elif long_pct <= 30:
-            signal = "BUY"
-            strength = "Strong"
-        elif long_pct <= 40:
-            signal = "BUY"
-            strength = "Weak"
-        else:
-            signal = "NEUTRAL"
-            strength = "None"
-        
-        # Crowd label is informational only (raw positioning)
-        if long_pct >= 60:
-            crowd_label = "Bullish Crowd"
-        elif long_pct <= 40:
-            crowd_label = "Bearish Crowd"
-        else:
-            crowd_label = "Mixed Crowd"
-        
-        current_sentiment = {
-            "score": round(score, 2),
-            "interpretation": interpretation,
-            "color": color,
-            "longPercentage": long_pct,
-            "shortPercentage": short_pct,
-            "crowdLabel": crowd_label,
-            "source": retail_positioning["source"],
-            "contrarian": {
-                "signal": signal,
-                "strength": strength,
-                "logic": f"Retail {long_pct:.1f}% long → Contrarian {signal}"
-            }
-        }
+
+    # Load latest COT snapshot (cached or fresh)
+    cot_snap = await get_cached(asset_id)
+    if cot_snap is None:
+        cot_snap = await _fetch_snapshot(asset_id)
+
+    retail_long = cot_snap.get("retailLong", 0) or 0
+    retail_short = cot_snap.get("retailShort", 0) or 0
+    retail_total = retail_long + retail_short
+
+    if retail_total > 0:
+        long_pct = round((retail_long / retail_total) * 100, 1)
+        short_pct = round(100.0 - long_pct, 1)
     else:
-        # Ultimate fallback: COT if MyFxBook unavailable
-        cot_snap = await get_cached(asset_id)
-        if cot_snap is None:
-            cot_snap = await _fetch_snapshot(asset_id)
-        
-        cot_sentiment = calculate_sentiment_from_cot(cot_snap)
-        current_sentiment = {
-            "score": cot_sentiment["score"],
-            "interpretation": cot_sentiment["interpretation"],
-            "color": cot_sentiment["color"],
-            "longPercentage": cot_sentiment["longPercentage"],
-            "shortPercentage": cot_sentiment["shortPercentage"],
-            "source": "COT Institutional (fallback)",
-            "contrarian": {
-                "signal": "NEUTRAL",
-                "strength": "None",
-                "logic": "COT is institutional data"
-            }
-        }
-    
-    # Get historical data for sentiment trend (COT based for consistency)
+        long_pct = 50.0
+        short_pct = 50.0
+
+    # CROWD SCORE: aligned with retail (Commercials) positioning
+    # 75% retail long → score +50 (Bullish crowd)
+    # 25% retail long → score -50 (Bearish crowd)
+    score = (long_pct - 50) * 2
+
+    # Interpretation reflects the retail crowd positioning
+    if score >= 70:
+        interpretation = "Extremely Bullish"
+        color = "#10b981"
+    elif score >= 40:
+        interpretation = "Bullish"
+        color = "#34d399"
+    elif score >= 10:
+        interpretation = "Slightly Bullish"
+        color = "#34d399"
+    elif score > -10:
+        interpretation = "Neutral"
+        color = "#94a3b8"
+    elif score > -40:
+        interpretation = "Slightly Bearish"
+        color = "#fb7185"
+    elif score > -70:
+        interpretation = "Bearish"
+        color = "#f43f5e"
+    else:
+        interpretation = "Extremely Bearish"
+        color = "#f43f5e"
+
+    # Contrarian signal based on the same retail positioning
+    if long_pct >= 70:
+        signal, strength = "SELL", "Strong"
+    elif long_pct >= 60:
+        signal, strength = "SELL", "Weak"
+    elif long_pct <= 30:
+        signal, strength = "BUY", "Strong"
+    elif long_pct <= 40:
+        signal, strength = "BUY", "Weak"
+    else:
+        signal, strength = "NEUTRAL", "None"
+
+    if long_pct >= 60:
+        crowd_label = "Bullish Crowd"
+    elif long_pct <= 40:
+        crowd_label = "Bearish Crowd"
+    else:
+        crowd_label = "Mixed Crowd"
+
+    current_sentiment = {
+        "score": round(score, 2),
+        "interpretation": interpretation,
+        "color": color,
+        "longPercentage": long_pct,
+        "shortPercentage": short_pct,
+        "crowdLabel": crowd_label,
+        "source": "CFTC COT Commercials (Retail proxy)",
+        "contrarian": {
+            "signal": signal,
+            "strength": strength,
+            "logic": f"Retail {long_pct:.1f}% long → Contrarian {signal}",
+        },
+        # Institutional view for the dual-line chart
+        "institutional": {
+            "long": cot_snap.get("long", 0),
+            "short": cot_snap.get("short", 0),
+            "netPosition": cot_snap.get("netPosition", 0),
+            "wowDelta": cot_snap.get("wowDelta", 0),
+        },
+    }
+
+    # Historical sentiment trend (COT-based, weekly)
     try:
-        history = await cot_history(asset_id, limit=12)
-        sentiment_history = calculate_sentiment_history(history)
+        history = await cot_history(asset_id, limit=24)
+        sentiment_history = []
+        for row in history:
+            r_l = row.get("retailLong") or 0
+            r_s = row.get("retailShort") or 0
+            tot = r_l + r_s
+            if tot > 0:
+                lp = round((r_l / tot) * 100, 1)
+            else:
+                lp = 50.0
+            sentiment_history.append({
+                "date": row.get("date"),
+                "score": round((lp - 50) * 2, 2),
+                "retailLongPct": lp,
+            })
     except Exception as e:
         logger.warning(f"Failed to fetch sentiment history for {asset_id}: {e}")
         sentiment_history = []
-    
-    # Get price history from Yahoo Finance (90 days)
+
+    # Price history from Yahoo Finance (90 days) for dual-line chart
     price_history = None
     if asset_id in YAHOO_SYMBOL:
         try:
             end_date = datetime.now(timezone.utc)
             start_date = end_date - timedelta(days=90)
-            
             price_dict = await fetch_daily_closes(asset_id, start_date, end_date)
-            
             price_history = [
                 {"date": date, "price": price}
                 for date, price in sorted(price_dict.items())
             ]
         except Exception as e:
             logger.warning(f"Failed to fetch Yahoo Finance prices for {asset_id}: {e}")
-    
+
     return {
         "assetId": asset_id,
         "assetName": ASSET_MAP[asset_id]["name"],
@@ -743,7 +789,7 @@ async def get_sentiment(asset_id: str) -> Dict[str, Any]:
         "history": sentiment_history,
         "priceHistory": price_history,
         "strategy": "contrarian",
-        "contrarian_note": "Trade AGAINST retail: >70% long = SELL, <30% long = BUY"
+        "contrarian_note": "Trade AGAINST retail (Commercials): >70% long = SELL, <30% long = BUY",
     }
 
 
@@ -844,7 +890,13 @@ async def macro_sentiment(asset_id: str, refresh: bool = Query(False), lang: str
         system = "Sei un senior macro analyst. Stile Bloomberg tagliente. Niente intro, solo analisi. Solo italiano."
         fallback = f"Nessuna news rilevante nel range settimanale. {len(relevant)} eventi macro tracciati da tradingeconomics."
 
-    summary = await _llm_generate(system, prompt, f"macro-{asset_id}-{lang}", fallback)
+    summary: str
+    # When refresh=False (regular user request), serve cache or deterministic fallback.
+    # When refresh=True (background prewarm or explicit cache bust), allow Gemini call.
+    if refresh:
+        summary = await _llm_generate(system, prompt, f"macro-{asset_id}-{lang}", fallback)
+    else:
+        summary = fallback
     is_real_ai = bool(summary) and summary != fallback
     data = {
         "assetId": asset_id,
@@ -1005,7 +1057,12 @@ async def final_verdict(asset_id: str, refresh: bool = Query(False), lang: str =
         system = "Sei un senior portfolio manager. Risponde solo in JSON valido, nessun commento extra. Solo italiano."
         fallback_json = '{"verdict":"WAIT","confidence":2,"summary":"Dati insufficienti per un verdetto solido."}'
 
-    raw = await _llm_generate(system, context, f"verdict-{asset_id}-{lang}", fallback_json)
+    raw: str
+    # When refresh=False, serve cache or deterministic fallback (no AI call)
+    if refresh:
+        raw = await _llm_generate(system, context, f"verdict-{asset_id}-{lang}", fallback_json)
+    else:
+        raw = fallback_json
     is_real_ai = bool(raw) and raw != fallback_json
     import json as _json
     parsed = None
@@ -1355,8 +1412,9 @@ async def _prewarm_all_assets(scope: str = "core") -> None:
     """Pre-fetch snapshots for all (or core) assets so the cache is populated.
 
     Uses normal TTL: if an asset's cache is fresh it's a no-op. If stale
-    or missing, this triggers the scraper + AI insight generation in the
-    background, leaving the system ready for the next visitor.
+    or missing, this triggers the scraper in the background. AI generation
+    is intentionally separate (see _prewarm_ai_insights) so user requests
+    never pay the AI latency.
     """
     asset_ids = list(ASSET_MAP.keys())
     if scope == "core":
@@ -1369,6 +1427,55 @@ async def _prewarm_all_assets(scope: str = "core") -> None:
         except Exception as e:  # noqa: BLE001
             logger.warning("pre-warm failed for %s: %s", aid, e)
     logger.info("Pre-warm completed (%d assets)", len(asset_ids))
+
+
+async def _prewarm_ai_insights(scope: str = "all", lang: str = "it") -> None:
+    """One-shot AI generation for every asset.
+
+    Runs Gemini ONCE per asset per (kind, reportDate, lang) and stores the
+    result in `ai_insight_cache`. Subsequent user requests serve the cached
+    text instantly with zero AI calls. This is the whole point: free-tier
+    Gemini quota suffices for one weekly batch, never for live user traffic.
+    """
+    if not GEMINI_API_KEY:
+        logger.info("AI prewarm skipped — no GEMINI_API_KEY configured")
+        return
+
+    asset_ids = list(ASSET_MAP.keys())
+    if scope == "core":
+        asset_ids = [k for k, v in ASSET_MAP.items() if v.get("core")]
+
+    logger.info("AI insight prewarm started for %d assets (lang=%s)", len(asset_ids), lang)
+    for aid in asset_ids:
+        try:
+            snap = await get_cached(aid, lang=lang)
+            if snap is None:
+                snap = await _fetch_snapshot(aid, lang=lang)
+            report_date = str(snap.get("reportDate") or "")
+            if not report_date:
+                continue
+
+            # 1) macro insight (short Bloomberg note)
+            existing = await get_ai_insight("macro", aid, report_date, lang)
+            if not existing or existing.get("fallback"):
+                text, used_fallback = await generate_macro_insight(aid, snap, lang=lang)
+                await set_ai_insight("macro", aid, report_date, lang, {"text": text, "fallback": used_fallback})
+                logger.info("AI prewarm macro %s: fallback=%s", aid, used_fallback)
+            # 2) macro_sentiment endpoint cache (triggered by refresh=True)
+            try:
+                await macro_sentiment(aid, refresh=True, lang=lang)  # type: ignore[arg-type]
+            except Exception as e:  # noqa: BLE001
+                logger.warning("AI prewarm macro_sent failed for %s: %s", aid, e)
+            # 3) verdict cache
+            try:
+                await final_verdict(aid, refresh=True, lang=lang)  # type: ignore[arg-type]
+            except Exception as e:  # noqa: BLE001
+                logger.warning("AI prewarm verdict failed for %s: %s", aid, e)
+
+            await asyncio.sleep(1.5)  # pace to stay below free-tier rate limits
+        except Exception as e:  # noqa: BLE001
+            logger.warning("AI prewarm failed for %s: %s", aid, e)
+    logger.info("AI insight prewarm completed")
 
 
 async def _prewarm_options() -> None:
@@ -1422,6 +1529,8 @@ async def _saturday_refresh_loop() -> None:
             # Pre-warm so next visitor gets data instantly
             await _prewarm_all_assets(scope="all")
             await _prewarm_options()
+            # AI insights: one-time weekly batch (Gemini free-tier-friendly)
+            await _prewarm_ai_insights(scope="all", lang="it")
         except asyncio.CancelledError:
             raise
         except Exception as e:  # noqa: BLE001
@@ -1438,6 +1547,9 @@ async def on_startup() -> None:
     _warm_task = asyncio.create_task(_prewarm_all_assets(scope="core"))
     # Options pre-warm runs in its own task — Yahoo throttling can be slow.
     asyncio.create_task(_prewarm_options())
+    # AI insight prewarm runs in its own task — calls Gemini once per asset
+    # then never again until next COT report. Keeps user requests AI-free.
+    asyncio.create_task(_prewarm_ai_insights(scope="core", lang="it"))
 
 
 @app.on_event("shutdown")
@@ -1445,9 +1557,4 @@ async def on_shutdown() -> None:
     for task in (_refresh_task, _warm_task):
         if task:
             task.cancel()
-    try:
-        from ig_sentiment_scraper import shutdown_ig_scraper
-        await shutdown_ig_scraper()
-    except Exception:
-        pass
     client.close()

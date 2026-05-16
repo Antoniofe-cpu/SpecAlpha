@@ -115,12 +115,49 @@ export default function AssetCard({ asset, isLoading, isFavorite, onClick, onTog
 
             <div
                 className={cn(
-                    'inline-flex items-center px-3 py-1.5 rounded-full border text-[11px] font-semibold tracking-[0.22em] uppercase mb-6',
+                    'inline-flex items-center px-3 py-1.5 rounded-full border text-[11px] font-semibold tracking-[0.22em] uppercase mb-4',
                     tonePill[trend.tone]
                 )}
             >
                 {t(trend.signalKey)}
             </div>
+
+            {/* Confluence Index — proprietary 0-100 probability score */}
+            {asset.confluenceIndex !== undefined && asset.confluenceIndex !== null && (() => {
+                const ci = Number(asset.confluenceIndex);
+                const ciTone = ci >= 65 ? 'bull' : ci >= 55 ? 'mildbull' : ci > 45 ? 'neutral' : ci > 35 ? 'mildbear' : 'bear';
+                const ciStyles = {
+                    bull: 'from-[#10b981]/15 to-[#10b981]/5 border-[#10b981]/35 text-[#34d399]',
+                    mildbull: 'from-[#34d399]/12 to-transparent border-[#34d399]/30 text-[#34d399]',
+                    neutral: 'from-amber-500/10 to-transparent border-amber-500/30 text-amber-300',
+                    mildbear: 'from-[#fb7185]/12 to-transparent border-[#fb7185]/30 text-[#fb7185]',
+                    bear: 'from-[#f43f5e]/15 to-[#f43f5e]/5 border-[#f43f5e]/35 text-[#fb7185]',
+                };
+                return (
+                    <div
+                        data-testid={`confluence-index-${asset.assetId}`}
+                        className={cn(
+                            'rounded-2xl border bg-gradient-to-br p-3.5 mb-6 flex items-center justify-between',
+                            ciStyles[ciTone]
+                        )}
+                    >
+                        <div>
+                            <div className="text-[9.5px] tracking-[0.26em] uppercase text-gray-400 font-bold mb-0.5">
+                                Confluence Index
+                            </div>
+                            <div className="text-[12px] font-bold tracking-tight">
+                                {asset.confluenceLabel || '—'}
+                            </div>
+                        </div>
+                        <div className="text-right">
+                            <div className="font-mono text-[28px] font-bold tnum leading-none">
+                                {ci.toFixed(0)}
+                                <span className="text-[12px] text-gray-500 font-normal ml-1">/100</span>
+                            </div>
+                        </div>
+                    </div>
+                );
+            })()}
 
             {/* Net Position + Delta */}
             <div className="grid grid-cols-2 gap-4 mb-6">
