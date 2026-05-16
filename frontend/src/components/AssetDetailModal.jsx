@@ -73,6 +73,7 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
     const [verdict, setVerdict] = useState(null);
     const [verdictLoading, setVerdictLoading] = useState(false);
     const [showPerformance, setShowPerformance] = useState(false);
+    const [showWowAndHistory, setShowWowAndHistory] = useState(false);
     const [performance, setPerformance] = useState(null);
     const [performanceLoading, setPerformanceLoading] = useState(false);
     const [perfMode, setPerfMode] = useState('ALL'); // 'ALL' | 'HIGH' | 'VERY_HIGH'
@@ -1190,8 +1191,29 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                             </div>
                         </div>
 
-                        {/* WoW delta bar chart + table */}
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        {/* WoW delta bar chart + table — collapsible (closed by default) */}
+                        <div className="bg-[#0e0e14] border border-white/[0.07] rounded-2xl overflow-hidden">
+                            <button
+                                data-testid="toggle-wow-history-btn"
+                                onClick={() => setShowWowAndHistory((v) => !v)}
+                                className="w-full flex items-center justify-between gap-3 px-5 py-3.5 hover:bg-[#14141c] transition-colors"
+                            >
+                                <div className="flex items-center gap-2">
+                                    {showWowAndHistory ? (
+                                        <EyeOff size={15} className="text-amber-400" />
+                                    ) : (
+                                        <Eye size={15} className="text-amber-400" />
+                                    )}
+                                    <h3 className="font-display text-base font-bold text-white">
+                                        Δ WoW + Storico Posizioni
+                                    </h3>
+                                </div>
+                                <span className="text-[11px] tracking-widest uppercase text-amber-300 font-semibold">
+                                    {showWowAndHistory ? t('modal.hide') : t('modal.show')}
+                                </span>
+                            </button>
+                            {showWowAndHistory && (
+                                <div className="px-5 pb-5 pt-2 grid grid-cols-1 lg:grid-cols-2 gap-6">
                             <div className="bg-[#0e0e14] border border-white/[0.07] rounded-3xl p-6">
                                 <h3 className="font-display text-lg font-bold text-white mb-1">{t('modal.delta_recent')}</h3>
                                 <p className="text-[12px] tracking-[0.25em] uppercase text-gray-500 font-semibold mb-4">
@@ -1276,6 +1298,8 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                     </table>
                                 </div>
                             </div>
+                                </div>
+                            )}
                         </div>
 
                         {/* Performance Verdetti (ultimo, collassabile) */}

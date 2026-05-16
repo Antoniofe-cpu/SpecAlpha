@@ -232,19 +232,47 @@ export default function AssetCard({ asset, isLoading, isFavorite, onClick, onTog
                 </div>
             </div>
 
-            {/* AI insight */}
-            <div className="border-l-2 border-amber-500/60 bg-gradient-to-r from-amber-500/[0.07] to-transparent rounded-r-2xl pl-4 pr-3 py-3.5 mb-6">
-                <div className="flex items-center gap-2 mb-1.5">
-                    <Activity size={12} className="text-amber-400" />
-                    <span className="text-[11px] font-bold uppercase tracking-[0.22em] text-amber-300">
-                        {t('card.analysis')}
-                    </span>
-                    {isLoading && <RefreshCw size={11} className="animate-spin text-amber-400/60 ml-auto" />}
-                </div>
-                <p className={cn('text-[13.5px] leading-relaxed text-gray-200 italic', isLoading && 'opacity-40')}>
-                    {asset.macro || t('card.sync_flows')}
-                </p>
-            </div>
+            {/* Retail Positioning (MyFxBook / IG.com) — replaces the old AI insight */}
+            {asset.retailPositioning ? (() => {
+                const rp = asset.retailPositioning;
+                const longPct = Number(rp.longPercentage) || 0;
+                const shortPct = Number(rp.shortPercentage) || 100 - longPct;
+                const dominantLong = longPct >= shortPct;
+                const dominantPct = Math.max(longPct, shortPct);
+                const sideLabel = dominantLong ? 'LONG' : 'SHORT';
+                const sideColor = dominantLong ? 'text-[#34d399]' : 'text-[#fb7185]';
+                return (
+                    <div
+                        data-testid={`retail-positioning-${asset.assetId}`}
+                        className="border-l-2 border-cyan-400/60 bg-gradient-to-r from-cyan-500/[0.06] to-transparent rounded-r-2xl pl-4 pr-3 py-3.5 mb-6"
+                    >
+                        <div className="flex items-center gap-2 mb-2">
+                            <Activity size={12} className="text-cyan-300" />
+                            <span className="text-[11px] font-bold uppercase tracking-[0.22em] text-cyan-200">
+                                Retail Sentiment
+                            </span>
+                            <span className="text-[9.5px] tracking-widest uppercase text-gray-500 font-semibold ml-auto">
+                                via {rp.source}
+                            </span>
+                        </div>
+                        <div className="flex items-baseline gap-2 mb-2">
+                            <span className={cn('font-mono text-[22px] font-bold tnum leading-none', sideColor)}>
+                                {dominantPct.toFixed(0)}%
+                            </span>
+                            <span className={cn('text-[12px] font-bold tracking-widest uppercase', sideColor)}>
+                                {sideLabel}
+                            </span>
+                            <span className="text-[10px] text-gray-500 ml-auto">
+                                long {longPct.toFixed(0)}% / short {shortPct.toFixed(0)}%
+                            </span>
+                        </div>
+                        <div className="flex h-1.5 rounded-full overflow-hidden bg-black/40">
+                            <div className="bg-[#34d399]" style={{ width: `${longPct}%` }} />
+                            <div className="bg-[#fb7185]" style={{ width: `${shortPct}%` }} />
+                        </div>
+                    </div>
+                );
+            })() : null}
 
             <div className="flex items-center justify-between border-t border-white/[0.06] pt-5">
                 <div>

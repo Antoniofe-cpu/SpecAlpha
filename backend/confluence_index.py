@@ -158,10 +158,12 @@ def calculate_confluence_index(
     else:
         # Alignment: 1.0 when all streams agree perfectly, 0 when they cancel out
         alignment = abs(signed_avg) / magnitude_avg
-        # Geometric blend so both alignment AND magnitude must be high to score high.
-        # sqrt(alignment * magnitude) keeps the index sensitive to weak-but-aligned
-        # signals while never giving full credit until they're also strong.
-        score = 100.0 * math.sqrt(alignment * magnitude_avg)
+        # Confluence formula: ALIGNMENT is the primary factor (60% weight),
+        # MAGNITUDE is a softening modulator (40% weight, starts from 0.4 floor).
+        # This way perfectly aligned weak signals still produce a meaningful score
+        # (e.g. alignment=1.0, magnitude=0.2 → 100*1.0*(0.4+0.6*0.2) ≈ 52),
+        # while perfectly aligned strong signals reach the full 100.
+        score = 100.0 * alignment * (0.4 + 0.6 * magnitude_avg)
 
     score = _clip(score, 0.0, 100.0)
 

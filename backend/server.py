@@ -48,6 +48,7 @@ from options_scraper import get_options_analytics, OPTIONS_MAP
 from sentiment_calculator import calculate_sentiment_from_cot, calculate_sentiment_history
 from confluence_index import calculate_confluence_index
 from historical_options import historical_options_signal as _hist_opt_signal
+from retail_positioning import get_retail_positioning
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -397,6 +398,8 @@ class CotSnapshot(BaseModel):
     confluenceComponents: Optional[Dict[str, Any]] = None
     confluenceLabel: Optional[str] = None
     confluenceDirection: Optional[str] = None
+    # Real-money retail positioning (MyFxBook / IG.com) shown on the card
+    retailPositioning: Optional[Dict[str, Any]] = None
 
 
 # ---------------------------------------------------------------------------
@@ -452,6 +455,15 @@ async def _fetch_snapshot(asset_id: str, force: bool = False, lang: str = "it") 
     else:
         # Deterministic fallback only — no Gemini call inline
         snapshot["macro"] = _macro_fallback_text(asset_id, snapshot, lang=lang)
+
+    # Retail positioning (MyFxBook / IG.com) — displayed on the AssetCard
+    # in place of the AI macro text. Best-effort: never blocks the response.
+    try:
+        retail = await get_retail_positioning(asset_id)
+        if retail:
+            snapshot["retailPositioning"] = retail
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Retail positioning fetch failed for %s: %s", asset_id, e)
 
     snapshot["fetchedAt"] = _now().isoformat()
     # Compute the proprietary Confluence Index (uses COT + cached options if available)
