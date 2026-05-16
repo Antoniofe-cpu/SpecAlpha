@@ -173,7 +173,9 @@ def _parse_legacy_report(html: str) -> Dict[str, Any]:
     net_position = long_pos - short_pos
     wow_delta = change_long - change_short
     total = long_pos + short_pos or 1
-    intensity = round(min(100, max(0, 50 + (net_position / total) * 100)))
+    # Intensity = INTRINSIC strength of positioning (direction-agnostic).
+    # 0 = balanced book, 100 = fully one-sided (extreme conviction long OR short).
+    intensity = round(min(100, abs(net_position / total) * 100))
     long_pct_change = round((change_long / long_pos) * 100, 2) if long_pos else 0.0
     short_pct_change = round((change_short / short_pos) * 100, 2) if short_pos else 0.0
 

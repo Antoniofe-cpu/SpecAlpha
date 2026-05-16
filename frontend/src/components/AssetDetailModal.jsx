@@ -40,12 +40,13 @@ import OptionsPanel from './OptionsPanel';
 import SentimentGauge from './SentimentGauge';
 
 const SERIES = [
-    { key: 'netPosition',  label: 'Net',          color: '#f59e0b', gradId: 'gNet', yAxis: 'left', fmt: 'k' },
-    { key: 'long',         label: 'Long',         color: '#34d399', gradId: 'gLong', yAxis: 'left', fmt: 'k' },
-    { key: 'short',        label: 'Short',        color: '#fb7185', gradId: 'gShort', yAxis: 'left', fmt: 'k' },
-    { key: 'retailLong',   label: 'Retail Long',  color: '#22d3ee', gradId: 'gRetailLong', yAxis: 'left', fmt: 'k' },
-    { key: 'retailShort',  label: 'Retail Short', color: '#a78bfa', gradId: 'gRetailShort', yAxis: 'left', fmt: 'k' },
-    { key: 'price',        label: 'Prezzo',       color: '#60a5fa', gradId: 'gPrice', yAxis: 'right', fmt: 'raw' },
+    { key: 'netPosition',     label: 'Net',           color: '#f59e0b', gradId: 'gNet', yAxis: 'left', fmt: 'k' },
+    { key: 'long',            label: 'Long',          color: '#34d399', gradId: 'gLong', yAxis: 'left', fmt: 'k' },
+    { key: 'short',           label: 'Short',         color: '#fb7185', gradId: 'gShort', yAxis: 'left', fmt: 'k' },
+    { key: 'retailNetPosition', label: 'Retail Net',  color: '#f472b6', gradId: 'gRetailNet', yAxis: 'left', fmt: 'k' },
+    { key: 'retailLong',      label: 'Retail Long',   color: '#22d3ee', gradId: 'gRetailLong', yAxis: 'left', fmt: 'k' },
+    { key: 'retailShort',     label: 'Retail Short',  color: '#a78bfa', gradId: 'gRetailShort', yAxis: 'left', fmt: 'k' },
+    { key: 'price',           label: 'Prezzo',        color: '#60a5fa', gradId: 'gPrice', yAxis: 'right', fmt: 'raw' },
 ];
 
 export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleFav }) {
@@ -59,6 +60,7 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
         netPosition: true,
         long: false,
         short: false,
+        retailNetPosition: false,
         retailLong: false,
         retailShort: false,
         price: true,
@@ -1011,9 +1013,6 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                             {t('modal.chart_title')}
                                         </h3>
                                     </div>
-                                    <p className="text-[12px] tracking-[0.25em] uppercase text-gray-500 mt-1 font-semibold">
-                                        {t('modal.chart_subtitle')}
-                                    </p>
                                 </div>
                                 <div className="flex items-center gap-1 bg-black/30 rounded-2xl border border-white/10 p-1.5">
                                     {[13, 26, 52, 100].map((n) => (
