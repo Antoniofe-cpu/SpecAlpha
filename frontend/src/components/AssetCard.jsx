@@ -134,9 +134,6 @@ export default function AssetCard({ asset, isLoading, isFavorite, onClick, onTog
                     low: 'from-white/[0.04] to-transparent border-white/10 text-gray-400',
                     verylow: 'from-white/[0.02] to-transparent border-white/5 text-gray-500',
                 };
-                const dir = asset.confluenceDirection || 'neutral';
-                const dirIcon = dir === 'long' ? '▲' : dir === 'short' ? '▼' : '◆';
-                const dirColor = dir === 'long' ? 'text-[#34d399]' : dir === 'short' ? 'text-[#fb7185]' : 'text-gray-500';
                 return (
                     <div
                         data-testid={`confluence-index-${asset.assetId}`}
@@ -145,20 +142,8 @@ export default function AssetCard({ asset, isLoading, isFavorite, onClick, onTog
                             strengthStyles[strengthTone]
                         )}
                     >
-                        <div>
-                            <div className="text-[9.5px] tracking-[0.26em] uppercase text-gray-400 font-bold mb-0.5">
-                                Confluence Index
-                            </div>
-                            <div className="flex items-center gap-1.5 text-[12px] font-bold tracking-tight">
-                                {asset.confluenceLabel || '—'}
-                                <span
-                                    className={cn('text-[11px] font-mono leading-none', dirColor)}
-                                    title={`Direzione segnale: ${dir}`}
-                                    data-testid={`confluence-direction-${asset.assetId}`}
-                                >
-                                    {dirIcon}
-                                </span>
-                            </div>
+                        <div className="text-[9.5px] tracking-[0.26em] uppercase text-gray-400 font-bold">
+                            Confluence Index
                         </div>
                         <div className="text-right">
                             <div className="font-mono text-[28px] font-bold tnum leading-none">

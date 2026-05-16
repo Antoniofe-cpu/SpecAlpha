@@ -40,10 +40,12 @@ import OptionsPanel from './OptionsPanel';
 import SentimentGauge from './SentimentGauge';
 
 const SERIES = [
-    { key: 'netPosition', label: 'Net', color: '#f59e0b', gradId: 'gNet', yAxis: 'left', fmt: 'k' },
-    { key: 'long',        label: 'Long',color: '#34d399', gradId: 'gLong', yAxis: 'left', fmt: 'k' },
-    { key: 'short',       label: 'Short', color: '#fb7185', gradId: 'gShort', yAxis: 'left', fmt: 'k' },
-    { key: 'price',       label: 'Prezzo', color: '#60a5fa', gradId: 'gPrice', yAxis: 'right', fmt: 'raw' },
+    { key: 'netPosition',  label: 'Net',          color: '#f59e0b', gradId: 'gNet', yAxis: 'left', fmt: 'k' },
+    { key: 'long',         label: 'Long',         color: '#34d399', gradId: 'gLong', yAxis: 'left', fmt: 'k' },
+    { key: 'short',        label: 'Short',        color: '#fb7185', gradId: 'gShort', yAxis: 'left', fmt: 'k' },
+    { key: 'retailLong',   label: 'Retail Long',  color: '#22d3ee', gradId: 'gRetailLong', yAxis: 'left', fmt: 'k' },
+    { key: 'retailShort',  label: 'Retail Short', color: '#a78bfa', gradId: 'gRetailShort', yAxis: 'left', fmt: 'k' },
+    { key: 'price',        label: 'Prezzo',       color: '#60a5fa', gradId: 'gPrice', yAxis: 'right', fmt: 'raw' },
 ];
 
 export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleFav }) {
@@ -57,6 +59,8 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
         netPosition: true,
         long: false,
         short: false,
+        retailLong: false,
+        retailShort: false,
         price: true,
     });
     // Zoom range inside the selected windowSize slice: [startIndex, endIndex] over chartData
@@ -986,13 +990,6 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                 )}
                             </div>
                         </div>
-
-                        {/* Sentiment Gauge */}
-                        <SentimentGauge 
-                            data={sentiment} 
-                            loading={sentimentLoading} 
-                            error={sentimentError}
-                        />
 
                         {/* Options & GEX panel — sits above the historical chart */}
                         {(optionsLoading || options || optionsError) && (

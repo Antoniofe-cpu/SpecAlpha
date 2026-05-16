@@ -302,15 +302,22 @@ async def fetch_cot_history(asset_id: str, limit: int = 60) -> List[Dict[str, An
 
     all_dates = sorted(set(net_map) | set(long_map) | set(short_map), reverse=True)
     prev_long = prev_short = None
+    prev_r_long = prev_r_short = None
     asc_dates = list(reversed(all_dates))
     snapshots: List[Dict[str, Any]] = []
     for d in asc_dates:
         long_val = int(long_map.get(d, {}).get("NonCommercial", 0))
         short_val = int(short_map.get(d, {}).get("NonCommercial", 0))
         net_val = int(net_map.get(d, {}).get("NonCommercial", long_val - short_val))
+        # Retail = Commercials (rebranded for UX); chart data uses "Commercial" key
+        retail_long_val = int(long_map.get(d, {}).get("Commercial", 0))
+        retail_short_val = int(short_map.get(d, {}).get("Commercial", 0))
+        retail_net_val = retail_long_val - retail_short_val
         price_val = net_map.get(d, {}).get("close")
         change_long = (long_val - prev_long) if prev_long is not None else 0
         change_short = (short_val - prev_short) if prev_short is not None else 0
+        retail_change_long = (retail_long_val - prev_r_long) if prev_r_long is not None else 0
+        retail_change_short = (retail_short_val - prev_r_short) if prev_r_short is not None else 0
         wow = change_long - change_short
         snapshots.append({
             "date": d,
@@ -321,7 +328,14 @@ async def fetch_cot_history(asset_id: str, limit: int = 60) -> List[Dict[str, An
             "changeShort": change_short,
             "wowDelta": wow,
             "price": round(float(price_val), 4) if price_val is not None else None,
+            # Retail (Commercials) historical fields
+            "retailLong": retail_long_val,
+            "retailShort": retail_short_val,
+            "retailNetPosition": retail_net_val,
+            "retailChangeLong": retail_change_long,
+            "retailChangeShort": retail_change_short,
         })
         prev_long, prev_short = long_val, short_val
+        prev_r_long, prev_r_short = retail_long_val, retail_short_val
     snapshots.reverse()
     return snapshots[:limit]
