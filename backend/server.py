@@ -884,15 +884,17 @@ async def generate_batch_insights(snapshots: List[Dict[str, Any]], lang: str) ->
             relevant = filter_events_for_asset(events_all, aid) if events_all else []
         except Exception:
             relevant = []
+        # 2★/3★ only
+        relevant = [e for e in (relevant or []) if (e.get("importance") or 0) >= 2]
         ev_compact = []
         for ev in (relevant or [])[:6]:
             ev_compact.append({
                 "date": ev.get("date"),
                 "country": ev.get("country"),
-                "title": ev.get("title") or ev.get("event"),
-                "impact": ev.get("impact"),
+                "title": ev.get("event") or ev.get("title"),
+                "impact": ev.get("importance"),
                 "actual": ev.get("actual"),
-                "forecast": ev.get("forecast"),
+                "forecast": ev.get("consensus") or ev.get("forecast"),
             })
         rows.append({
             "id": aid,
@@ -1000,15 +1002,20 @@ async def macro_sentiment(asset_id: str, refresh: bool = Query(False), lang: str
     # Always fetch live macro events (these are independent from AI text)
     events_all = await _get_calendar_events()
     relevant = filter_events_for_asset(events_all, asset_id)
+    # Keep ONLY 2★ and 3★ events (medium + high impact)
+    relevant = [e for e in (relevant or []) if (e.get("importance") or 0) >= 2]
     events_text = compact_events_text(relevant, limit=10)
     events_payload = [
         {
             "date": ev.get("date"),
+            "time": ev.get("time"),
             "country": ev.get("country"),
-            "title": ev.get("title") or ev.get("event"),
-            "impact": ev.get("impact"),
+            "event": ev.get("event") or ev.get("title"),
+            "title": ev.get("event") or ev.get("title"),
+            "impact": ev.get("importance"),
+            "importance": ev.get("importance"),
             "actual": ev.get("actual"),
-            "forecast": ev.get("forecast"),
+            "forecast": ev.get("consensus") or ev.get("forecast"),
             "previous": ev.get("previous"),
         }
         for ev in (relevant or [])[:10]

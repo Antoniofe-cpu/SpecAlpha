@@ -55,31 +55,32 @@ COUNTRY_NAME = {
 
 
 async def fetch_calendar_events(lookback_days: int = 7) -> List[Dict]:
-    """Fetch ALL high-importance events from calendar for "Recent" view (last ~7 days + upcoming)."""
+    """Fetch medium+high importance events (2★ and 3★ only) tagged with their impact."""
     urls = [
-        f"{BASE}/calendar?importance=3",  # high impact
-        f"{BASE}/calendar?importance=2&range=this+week",  # medium, this week
+        (f"{BASE}/calendar?importance=3", 3),  # high impact (3 stars)
+        (f"{BASE}/calendar?importance=2&range=this+week", 2),  # medium (2 stars)
     ]
     events: List[Dict] = []
     async with httpx.AsyncClient(timeout=20.0, headers=HEADERS, follow_redirects=True) as client:
-        for url in urls:
+        for url, importance in urls:
             try:
                 r = await client.get(url)
                 if r.status_code != 200:
                     continue
-                events.extend(_parse_calendar(r.text))
+                parsed = _parse_calendar(r.text)
+                for e in parsed:
+                    e["importance"] = importance
+                events.extend(parsed)
             except Exception as e:  # noqa: BLE001
                 logger.warning("calendar fetch failed %s: %s", url, e)
-    # Deduplicate by (date, event name, country)
-    seen = set()
-    dedup: List[Dict] = []
+    # Deduplicate by (date, event name, country) — keep the HIGHEST importance
+    seen: Dict[tuple, Dict] = {}
     for e in events:
         key = (e.get("date"), e.get("country"), e.get("event"))
-        if key in seen:
+        if key in seen and seen[key].get("importance", 0) >= e.get("importance", 0):
             continue
-        seen.add(key)
-        dedup.append(e)
-    return dedup
+        seen[key] = e
+    return list(seen.values())
 
 
 def _parse_calendar(html: str) -> List[Dict]:

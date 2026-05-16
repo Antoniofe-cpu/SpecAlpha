@@ -885,16 +885,21 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                         </p>
                                         {macro?.events?.length > 0 && (
                                             <div className="space-y-1.5">
-                                                {macro.events.slice(0, 4).map((e, i) => (
-                                                    <div key={i} className="flex items-center gap-2 text-[12px] font-mono">
-                                                        <span className="text-sky-400 font-bold w-8">{e.country}</span>
-                                                        <span className="text-gray-500 w-20">{e.date}</span>
-                                                        <span className="text-gray-200 flex-1 truncate">{e.event}</span>
-                                                        {e.previous && (
-                                                            <span className="text-gray-500">prev {e.previous}</span>
-                                                        )}
-                                                    </div>
-                                                ))}
+                                                {macro.events.slice(0, 6).map((e, i) => {
+                                                    const stars = '★'.repeat(Math.min(3, Math.max(1, Number(e.impact || e.importance || 0))));
+                                                    const starColor = (Number(e.impact || e.importance || 0)) >= 3 ? 'text-[#fb7185]' : 'text-amber-400';
+                                                    return (
+                                                        <div key={i} className="flex items-center gap-2 text-[12px] font-mono">
+                                                            <span className={cn('font-bold w-8 text-center', starColor)} title={`${e.impact || e.importance || 0}★`}>{stars}</span>
+                                                            <span className="text-sky-400 font-bold w-8">{e.country}</span>
+                                                            <span className="text-gray-500 w-20">{e.date}</span>
+                                                            <span className="text-gray-200 flex-1 truncate" title={e.event || e.title}>{e.event || e.title || '—'}</span>
+                                                            {e.previous && (
+                                                                <span className="text-gray-500">prev {e.previous}</span>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })}
                                             </div>
                                         )}
                                     </>
