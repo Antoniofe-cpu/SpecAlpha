@@ -145,26 +145,43 @@ def calculate_confluence_index(
     d_opt = _options_direction(options_data)
     d_sent = _sentiment_direction(cot_snapshot)
 
-    w_cot, w_opt, w_sent = WEIGHTS["cot"], WEIGHTS["options"], WEIGHTS["sentiment"]
+    # Renormalise weights when a component is missing/empty so its absence
+    # does not penalise the overall score (e.g. when no options data exists
+    # for FX pairs, we don't want CI to halve just because of that gap).
+    components_signal = [
+        ("cot", d_cot, WEIGHTS["cot"]),
+        ("options", d_opt, WEIGHTS["options"]),
+        ("sentiment", d_sent, WEIGHTS["sentiment"]),
+    ]
+    present = [(name, val, w) for name, val, w in components_signal if abs(val) > 0.01]
+    if not present:
+        return {
+            "score": 0.0,
+            "label": _label_for_score(0.0),
+            "direction": "neutral",
+            "components": {
+                "cot": round(d_cot, 3),
+                "options": round(d_opt, 3),
+                "sentiment": round(d_sent, 3),
+                "weights": WEIGHTS,
+                "signedAvg": 0.0,
+                "magnitudeAvg": 0.0,
+            },
+        }
 
-    # Weighted signed average (-1..+1): how strongly the COMBINED signal points
-    signed_avg = w_cot * d_cot + w_opt * d_opt + w_sent * d_sent
-    # Weighted absolute magnitude (0..1): how much information each stream is providing
-    magnitude_avg = w_cot * abs(d_cot) + w_opt * abs(d_opt) + w_sent * abs(d_sent)
+    total_w = sum(w for _, _, w in present)
+    signed_avg = sum(w * v for _, v, w in present) / total_w
+    magnitude_avg = sum(w * abs(v) for _, v, w in present) / total_w
+    alignment = abs(signed_avg) / magnitude_avg if magnitude_avg > 1e-9 else 0.0
 
-    if magnitude_avg <= 1e-9:
-        # All three streams are flat → no confluence possible
-        score = 0.0
-    else:
-        # Alignment: 1.0 when all streams agree perfectly, 0 when they cancel out
-        alignment = abs(signed_avg) / magnitude_avg
-        # Confluence formula: ALIGNMENT is the primary factor (60% weight),
-        # MAGNITUDE is a softening modulator (40% weight, starts from 0.4 floor).
-        # This way perfectly aligned weak signals still produce a meaningful score
-        # (e.g. alignment=1.0, magnitude=0.2 → 100*1.0*(0.4+0.6*0.2) ≈ 52),
-        # while perfectly aligned strong signals reach the full 100.
-        score = 100.0 * alignment * (0.4 + 0.6 * magnitude_avg)
-
+    # Confluence formula optimised for stream agreement:
+    # - alignment dominates (0..1 mapped to 0..1.0 score multiplier)
+    # - magnitude is a softening modulator with HIGH floor (0.6) so that even
+    #   weak-but-aligned signals score in the High band.
+    # With alignment=1.0, magnitude=0.3 → 100 * 1.0 * (0.6 + 0.4*0.3) = 72
+    # With alignment=1.0, magnitude=0.7 → 100 * 1.0 * (0.6 + 0.4*0.7) = 88
+    # With alignment=0.5, magnitude=0.5 → 100 * 0.5 * (0.6 + 0.4*0.5) = 40
+    score = 100.0 * alignment * (0.6 + 0.4 * magnitude_avg)
     score = _clip(score, 0.0, 100.0)
 
     return {

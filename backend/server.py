@@ -862,17 +862,40 @@ async def generate_batch_insights(snapshots: List[Dict[str, Any]], lang: str) ->
     """Generate macro insight + verdict for ALL assets in a SINGLE LLM call.
 
     Returns dict keyed by asset_id with shape:
-        {asset_id: {macro: str, verdict: "BUY"|"SELL"|"WAIT", summary: str, confidence: int}}
+        {asset_id: {macro: str, macroNote: str, verdict: "BUY"|"SELL"|"WAIT",
+                    summary: str, confidence: int}}
     or None if the LLM call fails entirely.
     """
     if not snapshots:
         return {}
 
+    # Fetch all macro events ONCE (shared across all assets in the prompt)
+    events_all: List[Dict[str, Any]] = []
+    try:
+        events_all = await _get_calendar_events()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("batch macro events fetch failed: %s", e)
+
     # Compact JSON-like dump that the LLM can reason about
     rows = []
     for s in snapshots:
+        aid = s.get("assetId") or ""
+        try:
+            relevant = filter_events_for_asset(events_all, aid) if events_all else []
+        except Exception:
+            relevant = []
+        ev_compact = []
+        for ev in (relevant or [])[:6]:
+            ev_compact.append({
+                "date": ev.get("date"),
+                "country": ev.get("country"),
+                "title": ev.get("title") or ev.get("event"),
+                "impact": ev.get("impact"),
+                "actual": ev.get("actual"),
+                "forecast": ev.get("forecast"),
+            })
         rows.append({
-            "id": s.get("assetId"),
+            "id": aid,
             "name": s.get("name"),
             "ncNet": s.get("netPosition"),
             "ncWow": s.get("wowDelta"),
@@ -885,6 +908,7 @@ async def generate_batch_insights(snapshots: List[Dict[str, Any]], lang: str) ->
             "ciDir": s.get("confluenceDirection"),
             "ciLabel": s.get("confluenceLabel"),
             "intensity": s.get("intensityIndex"),
+            "events": ev_compact,
         })
 
     if lang == "en":
@@ -892,34 +916,41 @@ async def generate_batch_insights(snapshots: List[Dict[str, Any]], lang: str) ->
             "You are a Bloomberg-style senior institutional analyst writing for a "
             "professional COT-data publication. You analyse ALL the assets in the "
             "user message in a SINGLE response and return ONLY valid JSON. "
-            "Each asset gets: (1) macro: one Bloomberg-style sentence in English "
-            "(40-60 words) interpreting Non-Commercial flow + retail divergence + "
-            "Confluence Index; (2) verdict: BUY/SELL/WAIT; (3) summary: 2-3 lines "
-            "of context (50-80 words); (4) confidence: 1..5. Make each entry DIFFERENT, "
-            "asset-specific. NEVER generic templates."
+            "Each asset gets 4 fields:\n"
+            "  (1) macroNote: 1-2 sentences in English citing 1-2 of the asset's "
+            "macro events (tradingeconomics) and their bullish/bearish skew (~220 chars)\n"
+            "  (2) verdict: BUY/SELL/WAIT\n"
+            "  (3) summary: 2-3 lines (50-80 words) explaining the verdict from "
+            "NC flow + retail divergence + Confluence Index\n"
+            "  (4) confidence: 1..5\n"
+            "Make each entry DIFFERENT and asset-specific. macroNote MUST reference "
+            "the events array; summary MUST reference the COT/retail/CI numbers."
         )
         instr = (
             "Return ONLY this JSON shape (no markdown fences, no commentary):\n"
-            "{\"<assetId>\": {\"macro\": \"...\", \"verdict\": \"BUY|SELL|WAIT\", "
+            "{\"<assetId>\": {\"macroNote\": \"...\", \"verdict\": \"BUY|SELL|WAIT\", "
             "\"summary\": \"...\", \"confidence\": 1-5}, ...}\n\n"
-            "Asset data:\n" + json.dumps(rows, ensure_ascii=False)
+            "Asset data + events:\n" + json.dumps(rows, ensure_ascii=False)
         )
     else:
         system = (
             "Sei un analista istituzionale senior in stile Bloomberg, scrivi per una "
             "testata professionale sul COT report. Analizza TUTTI gli asset nel messaggio "
-            "in UNA SOLA risposta e restituisci SOLO JSON valido. "
-            "Per ogni asset: (1) macro: una frase stile Bloomberg in italiano "
-            "(40-60 parole) che interpreti il flusso Non-Commercial + divergenza retail "
-            "+ Confluence Index; (2) verdict: BUY/SELL/WAIT; (3) summary: 2-3 righe "
-            "di contesto (50-80 parole); (4) confidence: 1..5. Rendi ogni voce DIVERSA "
-            "e specifica per l'asset. MAI template generici."
+            "in UNA SOLA risposta e restituisci SOLO JSON valido. Per ogni asset 4 campi:\n"
+            "  (1) macroNote: 1-2 frasi in italiano citando 1-2 eventi macro (tradingeconomics) "
+            "dell'asset e il loro skew rialzista/ribassista (~220 char)\n"
+            "  (2) verdict: BUY/SELL/WAIT\n"
+            "  (3) summary: 2-3 righe (50-80 parole) che spiegano il verdetto basandosi su "
+            "flusso NC + divergenza retail + Confluence Index\n"
+            "  (4) confidence: 1..5\n"
+            "Rendi ogni voce DIVERSA e specifica per l'asset. macroNote DEVE citare gli eventi "
+            "del campo events; summary DEVE citare i numeri COT/retail/CI."
         )
         instr = (
             "Restituisci SOLO questo JSON (no markdown fences, no commenti):\n"
-            "{\"<assetId>\": {\"macro\": \"...\", \"verdict\": \"BUY|SELL|WAIT\", "
+            "{\"<assetId>\": {\"macroNote\": \"...\", \"verdict\": \"BUY|SELL|WAIT\", "
             "\"summary\": \"...\", \"confidence\": 1-5}, ...}\n\n"
-            "Dati asset:\n" + json.dumps(rows, ensure_ascii=False)
+            "Dati asset + eventi:\n" + json.dumps(rows, ensure_ascii=False)
         )
 
     raw = await _llm_generate(system, instr, f"batch-{lang}", "")
@@ -940,7 +971,8 @@ async def generate_batch_insights(snapshots: List[Dict[str, Any]], lang: str) ->
             if not isinstance(payload, dict):
                 continue
             out[aid.upper()] = {
-                "macro": str(payload.get("macro") or "").strip(),
+                "macro": str(payload.get("macro") or payload.get("macroNote") or "").strip(),
+                "macroNote": str(payload.get("macroNote") or payload.get("macro") or "").strip(),
                 "verdict": str(payload.get("verdict") or "WAIT").upper(),
                 "summary": str(payload.get("summary") or "").strip(),
                 "confidence": int(payload.get("confidence") or 3),
@@ -965,23 +997,45 @@ async def macro_sentiment(asset_id: str, refresh: bool = Query(False), lang: str
         snap = await _fetch_snapshot(asset_id, lang=lang)
     report_date = str((snap or {}).get("reportDate") or "")
 
+    # Always fetch live macro events (these are independent from AI text)
+    events_all = await _get_calendar_events()
+    relevant = filter_events_for_asset(events_all, asset_id)
+    events_text = compact_events_text(relevant, limit=10)
+    events_payload = [
+        {
+            "date": ev.get("date"),
+            "country": ev.get("country"),
+            "title": ev.get("title") or ev.get("event"),
+            "impact": ev.get("impact"),
+            "actual": ev.get("actual"),
+            "forecast": ev.get("forecast"),
+            "previous": ev.get("previous"),
+        }
+        for ev in (relevant or [])[:10]
+    ]
+
     cache_key = f"{asset_id}__{lang}"
     if not refresh and report_date:
-        # Batch cache (ONE LLM call for ALL assets, cached for the whole week)
+        # Batch cache (ONE LLM call for ALL assets) — provides ONLY the macro note text
         batch = await get_batch_ai_cache(report_date, lang)
-        if batch and asset_id in batch and batch[asset_id].get("summary"):
+        if batch and asset_id in batch:
             entry = batch[asset_id]
-            return {
-                "summary": entry.get("summary"),
-                "eventCount": 0,
-                "events": [],
-                "fetchedAt": _now().isoformat(),
-                "source": "batch",
-                "usedFallback": False,
-            }
+            macro_text = entry.get("macroNote") or entry.get("macro") or ""
+            if macro_text:
+                return {
+                    "summary": macro_text,
+                    "eventCount": len(relevant),
+                    "events": events_payload,
+                    "fetchedAt": _now().isoformat(),
+                    "source": "batch",
+                    "usedFallback": False,
+                }
         # Permanent per-report cache (legacy)
         permanent = await get_ai_insight("macro_sent", asset_id, report_date, lang)
         if permanent:
+            # Inject live events into legacy cache too
+            permanent["events"] = events_payload
+            permanent["eventCount"] = len(relevant)
             return permanent
     if not refresh:
         # Fallback: legacy short-TTL cache (for entries pre-permanent-cache)
@@ -989,11 +1043,10 @@ async def macro_sentiment(asset_id: str, refresh: bool = Query(False), lang: str
         if doc:
             fetched_at = datetime.fromisoformat(doc["fetchedAt"])
             if _now() - fetched_at < timedelta(hours=MACRO_TTL_HOURS):
-                return doc["data"]
-
-    events_all = await _get_calendar_events()
-    relevant = filter_events_for_asset(events_all, asset_id)
-    events_text = compact_events_text(relevant, limit=10)
+                data = doc["data"]
+                data["events"] = events_payload
+                data["eventCount"] = len(relevant)
+                return data
 
     meta = ASSET_MAP[asset_id]
     if lang == "en":
@@ -1649,8 +1702,10 @@ async def _saturday_refresh_loop() -> None:
             # Pre-warm so next visitor gets data instantly
             await _prewarm_all_assets(scope="all")
             await _prewarm_options()
-            # AI insights: one-time weekly batch (Gemini free-tier-friendly)
+            # AI insights: one-time weekly batched calls (1 LLM call per language).
+            # Total cost: 2 credits per week for full IT + EN coverage.
             await _prewarm_ai_insights(scope="all", lang="it")
+            await _prewarm_ai_insights(scope="all", lang="en")
         except asyncio.CancelledError:
             raise
         except Exception as e:  # noqa: BLE001
@@ -1667,9 +1722,11 @@ async def on_startup() -> None:
     _warm_task = asyncio.create_task(_prewarm_all_assets(scope="core"))
     # Options pre-warm runs in its own task — Yahoo throttling can be slow.
     asyncio.create_task(_prewarm_options())
-    # AI insight prewarm runs in its own task — calls Gemini once per asset
-    # then never again until next COT report. Keeps user requests AI-free.
-    asyncio.create_task(_prewarm_ai_insights(scope="core", lang="it"))
+    # AI insight prewarm runs in its own task — calls Gemini ONCE (batched)
+    # for all assets, then never again until next COT report. Keeps user
+    # requests AI-free.
+    asyncio.create_task(_prewarm_ai_insights(scope="all", lang="it"))
+    asyncio.create_task(_prewarm_ai_insights(scope="all", lang="en"))
 
 
 @app.on_event("shutdown")
