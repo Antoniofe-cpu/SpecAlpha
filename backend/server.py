@@ -1107,22 +1107,25 @@ async def final_verdict(asset_id: str, refresh: bool = Query(False), lang: str =
 @api.get("/verdict/{asset_id}/performance")
 async def verdict_performance(asset_id: str) -> Dict[str, Any]:
     """
-    Signal Accuracy Backtest — misura quanto il segnale COT della settimana A
-    è stato rispettato dall'azione del prezzo nella settimana A+1 (lun-ven).
+    Confluence Index Track Record — replaces the old Signal Accuracy backtest.
 
-    Segnale rispettato (definizione chronological):
-      - LONG rispettato se il giorno del MINIMO settimanale viene PRIMA del giorno
-        del MASSIMO → il prezzo è salito dopo il minimo (direzione LONG confermata).
-      - SHORT rispettato se il giorno del MASSIMO viene PRIMA del giorno del MINIMO
-        → il prezzo è sceso dopo il massimo (direzione SHORT confermata).
+    For every historical COT week we re-compute the Confluence Index
+    (using COT NET + Sentiment-via-Retail-NET; the Options component is
+    not historical and is mocked to neutral=0). We bucket weeks by index
+    band and direction, then measure how often the implied direction was
+    confirmed by Yahoo OHLC in the following Monday→Friday window.
 
-    Due modalità di generazione segnale:
-      - LTS (Long-Term & Short-Term): net > 0 AND delta > 0 → LONG;
-        net < 0 AND delta < 0 → SHORT; altrimenti WAIT (skip).
-      - ST (Short-Term): delta > 0 → LONG; delta < 0 → SHORT; delta = 0 → WAIT.
+    Definition of "respected":
+      - direction LONG  respected when intra-week LOW comes BEFORE the HIGH
+      - direction SHORT respected when intra-week HIGH comes BEFORE the LOW
 
-    Due finestre: ultime 52 settimane + tutto lo storico disponibile.
-    Nessuna simulazione di entry/exit: metrica pura di qualità direzionale.
+    Buckets exposed to the UI:
+      - Confidence Band: HIGH (CI ≥ 60), MEDIUM (40-60), LOW (<40)
+      - Window: 24-week and 52-week
+
+    Disclaimer: this is a directional quality metric (not a P/L backtest).
+    It tells you whether the Confluence Index direction has historically
+    been confirmed by the next week's price action.
     """
     asset_id = asset_id.upper()
     if asset_id not in ASSET_MAP:
@@ -1133,7 +1136,7 @@ async def verdict_performance(asset_id: str) -> Dict[str, Any]:
         return {
             "assetId": asset_id,
             "generatedAt": _now().isoformat(),
-            "modes": {},
+            "bands": {},
             "history": [],
         }
 
@@ -1161,52 +1164,23 @@ async def verdict_performance(asset_id: str) -> Dict[str, Any]:
             cur = cur + timedelta(days=1)
         return out
 
-    def _signal_lts(row: Dict[str, Any]) -> str:
-        net = row.get("netPosition", 0) or 0
-        delta = row.get("wowDelta", 0) or 0
-        if net > 0 and delta > 0:
-            return "LONG"
-        if net < 0 and delta < 0:
-            return "SHORT"
-        return "WAIT"
-
-    def _signal_st(row: Dict[str, Any]) -> str:
-        delta = row.get("wowDelta", 0) or 0
-        if delta > 0:
-            return "LONG"
-        if delta < 0:
-            return "SHORT"
-        return "WAIT"
-
-    def _confidence(row: Dict[str, Any]) -> int:
-        net = row.get("netPosition", 0) or 0
-        delta = row.get("wowDelta", 0) or 0
-        lng = row.get("long", 0) or 1
-        srt = row.get("short", 0) or 1
-        total = lng + srt or 1
-        mag = abs(net / total) * 2 + abs(delta / total) * 3
-        if mag > 0.9:
-            return 5
-        if mag > 0.6:
-            return 4
-        if mag > 0.4:
-            return 3
-        if mag > 0.2:
-            return 2
-        return 1
-
-    def _respected(signal: str, high_before_low: Optional[bool]) -> Optional[bool]:
-        if signal not in ("LONG", "SHORT") or high_before_low is None:
+    def _respected(direction: str, high_before_low: Optional[bool]) -> Optional[bool]:
+        if direction not in ("long", "short") or high_before_low is None:
             return None
-        # LONG respected → low came first (high_before_low == False)
-        # SHORT respected → high came first (high_before_low == True)
-        return (not high_before_low) if signal == "LONG" else high_before_low
+        return (not high_before_low) if direction == "long" else high_before_low
 
     history_out: List[Dict[str, Any]] = []
     for row in hist:
         rd = row.get("date")
         if not rd:
             continue
+        # Compute Confluence Index for THIS historical week
+        # (options data not historical → options neutral, weights stay 40/40/20)
+        ci = calculate_confluence_index(row, options_data=None)
+        score = ci["score"]
+        direction = ci["direction"]
+        comp = ci.get("components", {})
+
         mon = next_monday(rd)
         fri = following_friday(mon)
         week = _week_days(mon, fri)
@@ -1225,12 +1199,7 @@ async def verdict_performance(asset_id: str) -> Dict[str, Any]:
                 if week_low > 0:
                     range_pct = round((week_high - week_low) / week_low * 100, 3)
 
-        s_lts = _signal_lts(row)
-        s_st = _signal_st(row)
-        conf = _confidence(row)
-        resp_lts = _respected(s_lts, high_before_low)
-        resp_st = _respected(s_st, high_before_low)
-
+        respected = _respected(direction, high_before_low)
         history_out.append({
             "reportDate": rd,
             "weekStart": mon,
@@ -1239,82 +1208,72 @@ async def verdict_performance(asset_id: str) -> Dict[str, Any]:
             "weekHigh": round(week_high, 4) if week_high is not None else None,
             "weekRangePct": range_pct,
             "highBeforeLow": high_before_low,
-            "signalLTS": s_lts,
-            "signalST": s_st,
-            "confidence": conf,
-            "respectedLTS": resp_lts,
-            "respectedST": resp_st,
-            "netPosition": row.get("netPosition"),
-            "wowDelta": row.get("wowDelta"),
+            "confluenceIndex": score,
+            "direction": direction,
+            "componentCot": comp.get("cot"),
+            "componentSentiment": comp.get("sentiment"),
+            "respected": respected,
         })
 
     # Oldest first for windowing
     history_out.sort(key=lambda h: h["reportDate"])
 
-    def _metrics(rows: List[Dict[str, Any]], sig_key: str, resp_key: str) -> Dict[str, Any]:
-        total_signals = respected = not_resp = skipped = pending = 0
+    def _metrics(rows: List[Dict[str, Any]], min_score: float = 0.0) -> Dict[str, Any]:
+        total_signals = respected_n = not_resp = skipped = pending = 0
         fav_moves: List[float] = []
         adv_moves: List[float] = []
-        hc_total = hc_resp = 0
         for r in rows:
-            sig = r.get(sig_key)
-            rp = r.get(resp_key)
-            if sig == "WAIT":
+            if (r.get("confluenceIndex") or 0) < min_score:
+                continue
+            if r.get("direction") == "neutral":
                 skipped += 1
                 continue
+            rp = r.get("respected")
             if rp is None:
                 pending += 1
                 continue
             total_signals += 1
             rg = r.get("weekRangePct") or 0
             if rp:
-                respected += 1
+                respected_n += 1
                 if rg:
                     fav_moves.append(rg)
-                if (r.get("confidence") or 0) >= 4:
-                    hc_total += 1
-                    hc_resp += 1
             else:
                 not_resp += 1
                 if rg:
                     adv_moves.append(rg)
-                if (r.get("confidence") or 0) >= 4:
-                    hc_total += 1
-        accuracy = round(respected / total_signals * 100, 1) if total_signals > 0 else None
-        avg_fav = round(sum(fav_moves) / len(fav_moves), 2) if fav_moves else None
-        avg_adv = round(sum(adv_moves) / len(adv_moves), 2) if adv_moves else None
-        hc_acc = round(hc_resp / hc_total * 100, 1) if hc_total > 0 else None
+        accuracy = round(respected_n / total_signals * 100, 1) if total_signals > 0 else None
         return {
             "total": total_signals,
-            "respected": respected,
+            "respected": respected_n,
             "notRespected": not_resp,
             "skipped": skipped,
             "pending": pending,
             "accuracy": accuracy,
-            "avgFavorableRangePct": avg_fav,
-            "avgAdverseRangePct": avg_adv,
-            "highConfAccuracy": {
-                "minConf": 4,
-                "total": hc_total,
-                "respected": hc_resp,
-                "accuracy": hc_acc,
-            },
+            "avgFavorableRangePct": round(sum(fav_moves) / len(fav_moves), 2) if fav_moves else None,
+            "avgAdverseRangePct": round(sum(adv_moves) / len(adv_moves), 2) if adv_moves else None,
         }
 
-    window_12w = history_out[-12:]
     window_24w = history_out[-24:]
-    modes = {
-        "LTS": {
-            "label": "LONG-TERM & SHORT-TERM",
-            "description": "Segnale emesso solo quando Net Position e Δ WoW sono concordi in direzione.",
-            "window12w": _metrics(window_12w, "signalLTS", "respectedLTS"),
-            "window24w": _metrics(window_24w, "signalLTS", "respectedLTS"),
+    window_52w = history_out[-52:]
+    bands = {
+        "ALL": {
+            "label": "All Signals",
+            "description": "Tutti i segnali (CI ≥ 0) escluso direction=neutral.",
+            "window24w": _metrics(window_24w, 0.0),
+            "window52w": _metrics(window_52w, 0.0),
         },
-        "ST": {
-            "label": "SHORT-TERM",
-            "description": "Segnale emesso solo in base alla direzione del Δ WoW (momentum settimanale puro).",
-            "window12w": _metrics(window_12w, "signalST", "respectedST"),
-            "window24w": _metrics(window_24w, "signalST", "respectedST"),
+        "HIGH": {
+            "label": "High Confluence (≥60)",
+            "description": "Solo le settimane in cui il Confluence Index era ≥ 60 (concordanza alta).",
+            "window24w": _metrics(window_24w, 60.0),
+            "window52w": _metrics(window_52w, 60.0),
+        },
+        "VERY_HIGH": {
+            "label": "Very High (≥80)",
+            "description": "Solo le settimane in cui il Confluence Index era ≥ 80 (concordanza estrema).",
+            "window24w": _metrics(window_24w, 80.0),
+            "window52w": _metrics(window_52w, 80.0),
         },
     }
 
@@ -1324,7 +1283,7 @@ async def verdict_performance(asset_id: str) -> Dict[str, Any]:
     return {
         "assetId": asset_id,
         "generatedAt": _now().isoformat(),
-        "modes": modes,
+        "bands": bands,
         "history": history_display,
     }
 

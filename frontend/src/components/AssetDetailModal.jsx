@@ -75,7 +75,7 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
     const [showPerformance, setShowPerformance] = useState(false);
     const [performance, setPerformance] = useState(null);
     const [performanceLoading, setPerformanceLoading] = useState(false);
-    const [perfMode, setPerfMode] = useState('LTS'); // 'LTS' | 'ST'
+    const [perfMode, setPerfMode] = useState('ALL'); // 'ALL' | 'HIGH' | 'VERY_HIGH'
     const [options, setOptions] = useState(null);
     const [optionsLoading, setOptionsLoading] = useState(false);
     const [optionsError, setOptionsError] = useState(false);
@@ -545,30 +545,30 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
             pdf.text(noteLines, M, y);
             y += noteLines.length * 3 + 4;
 
-            if (perf && perf.modes) {
-                // Render two blocks: LTS and ST, each with two windows (52w + all-time)
-                const modesToRender = [
-                    { key: 'LTS', label: t('modal.perf.mode_lts') },
-                    { key: 'ST', label: t('modal.perf.mode_st') },
+            if (perf && perf.bands) {
+                // Render two blocks: ALL signals and HIGH-confluence, each with 24w + 52w windows
+                const bandsToRender = [
+                    { key: 'ALL', label: 'TUTTI I SEGNALI' },
+                    { key: 'HIGH', label: 'CONFLUENCE INDEX ≥ 60' },
                 ];
                 const windowsToRender = [
-                    { key: 'window12w', label: t('modal.perf.window_12w') },
-                    { key: 'window24w', label: t('modal.perf.window_24w') },
+                    { key: 'window24w', label: t('modal.perf.window_12w') || '24w' },
+                    { key: 'window52w', label: t('modal.perf.window_24w') || '52w' },
                 ];
 
-                for (const mode of modesToRender) {
+                for (const band of bandsToRender) {
                     ensurePage(45);
                     setText(AMBER);
                     pdf.setFont('helvetica', 'bold');
                     pdf.setFontSize(9);
-                    pdf.text(mode.label, M, y);
+                    pdf.text(band.label, M, y);
                     y += 4;
 
                     const cardW = (W - M * 2 - 4) / 2;
                     const cardH = 32;
                     for (let i = 0; i < windowsToRender.length; i++) {
                         const win = windowsToRender[i];
-                        const m = perf.modes[mode.key]?.[win.key];
+                        const m = perf.bands[band.key]?.[win.key];
                         const cx = M + i * (cardW + 4);
                         panel(cx, y, cardW, cardH);
                         setText(MUTED);
@@ -595,7 +595,6 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                         pdf.setFontSize(7);
                         pdf.text(t('modal.perf.accuracy'), cx + 3, y + 18);
 
-                        // Stats on the right side of card
                         setText(TEXT);
                         pdf.setFont('helvetica', 'normal');
                         pdf.setFontSize(7);
@@ -611,20 +610,11 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                             setText(RED);
                             pdf.text(`Adv: ${m.avgAdverseRangePct}%`, statsX, y + 26);
                         }
-                        if (m.highConfAccuracy && m.highConfAccuracy.total > 0) {
-                            setText(MUTED);
-                            pdf.setFontSize(6.5);
-                            pdf.text(
-                                `Conf>=4: ${m.highConfAccuracy.accuracy}% (${m.highConfAccuracy.respected}/${m.highConfAccuracy.total})`,
-                                cx + 3,
-                                y + 28
-                            );
-                        }
                     }
                     y += cardH + 5;
                 }
 
-                // History table
+                // History table — show CI + direction + range
                 ensurePage(60);
                 setText(MUTED);
                 pdf.setFont('helvetica', 'bold');
@@ -652,14 +642,14 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                     alternateRowStyles: { fillColor: [16, 16, 22] },
                     head: [[
                         t('modal.perf.col.report'),
-                        t('modal.perf.col.signal'),
-                        t('modal.perf.col.conf'),
+                        'CI',
+                        'DIR',
                         t('modal.perf.col.range'),
                     ]],
                     body: (perf.history || []).slice(0, 15).map((r) => {
-                        // Default to LTS for PDF (could be made dynamic with an option)
-                        const sig = r.signalLTS;
-                        const resp = r.respectedLTS;
+                        const ci = r.confluenceIndex;
+                        const dir = (r.direction || 'neutral').toUpperCase();
+                        const resp = r.respected;
                         let rangeStr = '—';
                         if (r.weekRangePct != null) {
                             if (resp === true) rangeStr = `+${r.weekRangePct.toFixed(2)}%`;
@@ -668,18 +658,18 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                         }
                         return [
                             r.reportDate || '—',
-                            sig || '—',
-                            r.confidence != null ? String(r.confidence) : '—',
+                            ci != null ? ci.toFixed(0) : '—',
+                            dir,
                             rangeStr,
                         ];
                     }),
                     didParseCell: (data) => {
                         if (data.section !== 'body') return;
-                        if (data.column.index === 1) {
+                        if (data.column.index === 2) {
                             const v = data.cell.text[0];
                             if (v === 'LONG') data.cell.styles.textColor = GREEN;
                             else if (v === 'SHORT') data.cell.styles.textColor = RED;
-                            else if (v === 'WAIT') data.cell.styles.textColor = MUTED;
+                            else data.cell.styles.textColor = MUTED;
                             data.cell.styles.fontStyle = 'bold';
                         }
                         if (data.column.index === 3) {
@@ -1325,46 +1315,42 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                             <RefreshCw size={14} className="animate-spin text-amber-400/60" />
                                             {t('modal.perf_loading')}
                                         </div>
-                                    ) : performance && performance.modes ? (
+                                    ) : performance && performance.bands ? (
                                         <>
-                                            {/* Mode toggle */}
+                                            {/* Band toggle: ALL / HIGH / VERY_HIGH */}
                                             <div className="flex gap-2 mb-2">
-                                                <button
-                                                    data-testid="mode-lts-btn"
-                                                    onClick={() => setPerfMode('LTS')}
-                                                    className={cn(
-                                                        'flex-1 px-3 py-2 rounded-xl text-[11px] font-semibold uppercase tracking-wider transition-all',
-                                                        perfMode === 'LTS'
-                                                            ? 'bg-amber-500/15 text-amber-300 border border-amber-500/40'
-                                                            : 'bg-black/30 text-gray-500 border border-white/5 hover:text-gray-300'
-                                                    )}
-                                                >
-                                                    {t('modal.perf.mode_lts')}
-                                                </button>
-                                                <button
-                                                    data-testid="mode-st-btn"
-                                                    onClick={() => setPerfMode('ST')}
-                                                    className={cn(
-                                                        'flex-1 px-3 py-2 rounded-xl text-[11px] font-semibold uppercase tracking-wider transition-all',
-                                                        perfMode === 'ST'
-                                                            ? 'bg-amber-500/15 text-amber-300 border border-amber-500/40'
-                                                            : 'bg-black/30 text-gray-500 border border-white/5 hover:text-gray-300'
-                                                    )}
-                                                >
-                                                    {t('modal.perf.mode_st')}
-                                                </button>
+                                                {[
+                                                    { key: 'ALL', label: 'TUTTI' },
+                                                    { key: 'HIGH', label: 'HIGH ≥60' },
+                                                    { key: 'VERY_HIGH', label: 'VERY HIGH ≥80' },
+                                                ].map(({ key, label }) => (
+                                                    <button
+                                                        key={key}
+                                                        data-testid={`band-${key.toLowerCase()}-btn`}
+                                                        onClick={() => setPerfMode(key)}
+                                                        className={cn(
+                                                            'flex-1 px-3 py-2 rounded-xl text-[11px] font-semibold uppercase tracking-wider transition-all',
+                                                            perfMode === key
+                                                                ? 'bg-amber-500/15 text-amber-300 border border-amber-500/40'
+                                                                : 'bg-black/30 text-gray-500 border border-white/5 hover:text-gray-300'
+                                                        )}
+                                                    >
+                                                        {label}
+                                                    </button>
+                                                ))}
                                             </div>
                                             <p className="text-[11px] text-gray-600 italic mb-4">
-                                                {perfMode === 'LTS' ? t('modal.perf.mode_lts_desc') : t('modal.perf.mode_st_desc')}
+                                                {(performance.bands[perfMode] || performance.bands.ALL)?.description}
                                             </p>
 
                                             {/* Two windows side by side */}
                                             <div className="grid md:grid-cols-2 gap-3 mb-5">
                                                 {[
-                                                    { key: 'window12w', title: t('modal.perf.window_12w') },
-                                                    { key: 'window24w', title: t('modal.perf.window_24w') },
+                                                    { key: 'window24w', title: '24 SETTIMANE' },
+                                                    { key: 'window52w', title: '52 SETTIMANE' },
                                                 ].map(({ key, title }) => {
-                                                    const m = performance.modes[perfMode]?.[key];
+                                                    const band = performance.bands[perfMode] || performance.bands.ALL;
+                                                    const m = band?.[key];
                                                     if (!m || m.total === 0) {
                                                         return (
                                                             <div key={key} className="bg-black/30 border border-white/5 rounded-2xl p-4">
@@ -1382,14 +1368,6 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                                         acc >= 55 ? 'text-[#34d399]' : acc >= 50 ? 'text-amber-300' : 'text-[#fb7185]';
                                                     const denom = m.respected + m.notRespected || 1;
                                                     const respPct = (m.respected / denom) * 100;
-                                                    const hc = m.highConfAccuracy;
-                                                    const hcAcc = hc?.accuracy;
-                                                    const hcColor =
-                                                        (hcAcc ?? 0) >= 55
-                                                            ? 'text-[#34d399]'
-                                                            : (hcAcc ?? 0) >= 50
-                                                            ? 'text-amber-300'
-                                                            : 'text-[#fb7185]';
                                                     return (
                                                         <div
                                                             key={key}
@@ -1441,17 +1419,6 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                                                     </span>
                                                                 </div>
                                                             </div>
-                                                            {hc && hc.total > 0 && (
-                                                                <div className="mt-3 pt-3 border-t border-white/5 text-[11px] text-gray-400 flex items-center justify-between">
-                                                                    <span>{t('modal.perf.high_conf')}</span>
-                                                                    <span>
-                                                                        <span className={cn('font-mono font-semibold', hcColor)}>
-                                                                            {hcAcc != null ? `${hcAcc}%` : '—'}
-                                                                        </span>
-                                                                        <span className="text-gray-600"> ({hc.respected}/{hc.total})</span>
-                                                                    </span>
-                                                                </div>
-                                                            )}
                                                         </div>
                                                     );
                                                 })}
@@ -1468,17 +1435,16 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                                             <thead>
                                                                 <tr className="text-[10px] uppercase tracking-[0.2em] text-gray-500 font-semibold border-b border-white/5">
                                                                     <th className="px-2 py-2 text-left">{t('modal.perf.col.report')}</th>
-                                                                    <th className="px-2 py-2 text-left">{t('modal.perf.col.signal')}</th>
-                                                                    <th className="px-2 py-2 text-right">{t('modal.perf.col.conf')}</th>
+                                                                    <th className="px-2 py-2 text-right">CI</th>
+                                                                    <th className="px-2 py-2 text-left">DIR</th>
                                                                     <th className="px-2 py-2 text-right">{t('modal.perf.col.range')}</th>
                                                                 </tr>
                                                             </thead>
                                                             <tbody className="font-mono">
                                                                 {performance.history.slice(0, 20).map((r, i) => {
-                                                                    const sigKey = perfMode === 'LTS' ? 'signalLTS' : 'signalST';
-                                                                    const respKey = perfMode === 'LTS' ? 'respectedLTS' : 'respectedST';
-                                                                    const signal = r[sigKey];
-                                                                    const respected = r[respKey];
+                                                                    const ci = r.confluenceIndex;
+                                                                    const dir = (r.direction || 'neutral').toUpperCase();
+                                                                    const respected = r.respected;
                                                                     const rangeVal = r.weekRangePct;
                                                                     let rangeDisplay = '—';
                                                                     let rangeColor = 'text-gray-500';
@@ -1494,6 +1460,11 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                                                             rangeColor = 'text-gray-400';
                                                                         }
                                                                     }
+                                                                    const ciColor =
+                                                                        ci >= 80 ? 'text-amber-200' :
+                                                                        ci >= 60 ? 'text-amber-300' :
+                                                                        ci >= 40 ? 'text-gray-200' :
+                                                                        'text-gray-500';
                                                                     return (
                                                                         <tr
                                                                             key={i}
@@ -1503,18 +1474,16 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                                                             )}
                                                                         >
                                                                             <td className="px-2 py-2 text-gray-200">{r.reportDate}</td>
-                                                                            <td
-                                                                                className={cn(
-                                                                                    'px-2 py-2 font-semibold',
-                                                                                    signal === 'LONG' && 'text-[#34d399]',
-                                                                                    signal === 'SHORT' && 'text-[#fb7185]',
-                                                                                    signal === 'WAIT' && 'text-gray-500'
-                                                                                )}
-                                                                            >
-                                                                                {signal || '—'}
+                                                                            <td className={cn('px-2 py-2 text-right font-semibold', ciColor)}>
+                                                                                {ci != null ? ci.toFixed(0) : '—'}
                                                                             </td>
-                                                                            <td className="px-2 py-2 text-right text-amber-300/85">
-                                                                                {r.confidence ?? '—'}
+                                                                            <td className={cn(
+                                                                                'px-2 py-2 font-semibold',
+                                                                                dir === 'LONG' && 'text-[#34d399]',
+                                                                                dir === 'SHORT' && 'text-[#fb7185]',
+                                                                                dir === 'NEUTRAL' && 'text-gray-500'
+                                                                            )}>
+                                                                                {dir}
                                                                             </td>
                                                                             <td className={cn('px-2 py-2 text-right font-semibold', rangeColor)}>
                                                                                 {rangeDisplay}
