@@ -12,6 +12,7 @@ Endpoints (all prefixed with /api):
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import re
@@ -48,7 +49,6 @@ from options_scraper import get_options_analytics, OPTIONS_MAP
 from sentiment_calculator import calculate_sentiment_from_cot, calculate_sentiment_history
 from confluence_index import calculate_confluence_index
 from historical_options import historical_options_signal as _hist_opt_signal
-from retail_positioning import get_retail_positioning
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -313,6 +313,25 @@ async def set_ai_insight(kind: str, asset_id: str, report_date: str, lang: str, 
     )
 
 
+# ---- Batch AI cache (ONE call covers ALL assets for the week) -----------
+async def get_batch_ai_cache(report_date: str, lang: str) -> Optional[Dict[str, Any]]:
+    """Return the batch dict {asset_id: {macro, verdict, summary, confidence}} or None."""
+    if not report_date:
+        return None
+    key = f"batch__{report_date}__{lang}"
+    doc = await db[AI_INSIGHT_COLL].find_one({"_id": key}, {"_id": 0})
+    return doc.get("data") if doc else None
+
+
+async def set_batch_ai_cache(report_date: str, lang: str, data: Dict[str, Any]) -> None:
+    key = f"batch__{report_date}__{lang}"
+    await db[AI_INSIGHT_COLL].update_one(
+        {"_id": key},
+        {"$set": {"data": data, "savedAt": _now().isoformat()}},
+        upsert=True,
+    )
+
+
 async def get_cached(asset_id: str, lang: str = "it") -> Optional[Dict[str, Any]]:
     key = f"{asset_id}__{lang}"
     doc = await db[CACHE_COLL].find_one({"_id": key}, {"_id": 0})
@@ -398,8 +417,6 @@ class CotSnapshot(BaseModel):
     confluenceComponents: Optional[Dict[str, Any]] = None
     confluenceLabel: Optional[str] = None
     confluenceDirection: Optional[str] = None
-    # Real-money retail positioning (MyFxBook / IG.com) shown on the card
-    retailPositioning: Optional[Dict[str, Any]] = None
 
 
 # ---------------------------------------------------------------------------
@@ -441,29 +458,14 @@ async def _fetch_snapshot(asset_id: str, force: bool = False, lang: str = "it") 
         **raw,
     }
     report_date = str(snapshot.get("reportDate") or "")
-    # AI insight: ALWAYS serve from cache or deterministic fallback.
-    # The real Gemini call happens in the background prewarm task (see _prewarm_ai_insights)
-    # so that the user request path is fast and never hits AI rate limits.
-    cached_macro = None
-    if report_date:
-        cached = await get_ai_insight("macro", asset_id, report_date, lang)
-        if cached and isinstance(cached.get("text"), str):
-            cached_macro = cached["text"]
-
-    if cached_macro:
-        snapshot["macro"] = cached_macro
+    # AI insight: ALWAYS serve from the BATCH cache (one call → all assets).
+    # The real Gemini call happens once per week via _prewarm_ai_insights_batch.
+    batch = await get_batch_ai_cache(report_date, lang)
+    cached = (batch or {}).get(asset_id) if batch else None
+    if cached and isinstance(cached.get("macro"), str):
+        snapshot["macro"] = cached["macro"]
     else:
-        # Deterministic fallback only — no Gemini call inline
         snapshot["macro"] = _macro_fallback_text(asset_id, snapshot, lang=lang)
-
-    # Retail positioning (MyFxBook / IG.com) — displayed on the AssetCard
-    # in place of the AI macro text. Best-effort: never blocks the response.
-    try:
-        retail = await get_retail_positioning(asset_id)
-        if retail:
-            snapshot["retailPositioning"] = retail
-    except Exception as e:  # noqa: BLE001
-        logger.warning("Retail positioning fetch failed for %s: %s", asset_id, e)
 
     snapshot["fetchedAt"] = _now().isoformat()
     # Compute the proprietary Confluence Index (uses COT + cached options if available)
@@ -853,6 +855,102 @@ async def _llm_generate(system: str, user: str, session: str, fallback: str) -> 
         return fallback
 
 
+# ---------------------------------------------------------------------------
+# BATCH AI generator — ONE Gemini call covers ALL assets for the week
+# ---------------------------------------------------------------------------
+async def generate_batch_insights(snapshots: List[Dict[str, Any]], lang: str) -> Optional[Dict[str, Any]]:
+    """Generate macro insight + verdict for ALL assets in a SINGLE LLM call.
+
+    Returns dict keyed by asset_id with shape:
+        {asset_id: {macro: str, verdict: "BUY"|"SELL"|"WAIT", summary: str, confidence: int}}
+    or None if the LLM call fails entirely.
+    """
+    if not snapshots:
+        return {}
+
+    # Compact JSON-like dump that the LLM can reason about
+    rows = []
+    for s in snapshots:
+        rows.append({
+            "id": s.get("assetId"),
+            "name": s.get("name"),
+            "ncNet": s.get("netPosition"),
+            "ncWow": s.get("wowDelta"),
+            "ncLong": s.get("long"),
+            "ncShort": s.get("short"),
+            "retailNet": s.get("retailNetPosition"),
+            "retailLong": s.get("retailLong"),
+            "retailShort": s.get("retailShort"),
+            "ci": s.get("confluenceIndex"),
+            "ciDir": s.get("confluenceDirection"),
+            "ciLabel": s.get("confluenceLabel"),
+            "intensity": s.get("intensityIndex"),
+        })
+
+    if lang == "en":
+        system = (
+            "You are a Bloomberg-style senior institutional analyst writing for a "
+            "professional COT-data publication. You analyse ALL the assets in the "
+            "user message in a SINGLE response and return ONLY valid JSON. "
+            "Each asset gets: (1) macro: one Bloomberg-style sentence in English "
+            "(40-60 words) interpreting Non-Commercial flow + retail divergence + "
+            "Confluence Index; (2) verdict: BUY/SELL/WAIT; (3) summary: 2-3 lines "
+            "of context (50-80 words); (4) confidence: 1..5. Make each entry DIFFERENT, "
+            "asset-specific. NEVER generic templates."
+        )
+        instr = (
+            "Return ONLY this JSON shape (no markdown fences, no commentary):\n"
+            "{\"<assetId>\": {\"macro\": \"...\", \"verdict\": \"BUY|SELL|WAIT\", "
+            "\"summary\": \"...\", \"confidence\": 1-5}, ...}\n\n"
+            "Asset data:\n" + json.dumps(rows, ensure_ascii=False)
+        )
+    else:
+        system = (
+            "Sei un analista istituzionale senior in stile Bloomberg, scrivi per una "
+            "testata professionale sul COT report. Analizza TUTTI gli asset nel messaggio "
+            "in UNA SOLA risposta e restituisci SOLO JSON valido. "
+            "Per ogni asset: (1) macro: una frase stile Bloomberg in italiano "
+            "(40-60 parole) che interpreti il flusso Non-Commercial + divergenza retail "
+            "+ Confluence Index; (2) verdict: BUY/SELL/WAIT; (3) summary: 2-3 righe "
+            "di contesto (50-80 parole); (4) confidence: 1..5. Rendi ogni voce DIVERSA "
+            "e specifica per l'asset. MAI template generici."
+        )
+        instr = (
+            "Restituisci SOLO questo JSON (no markdown fences, no commenti):\n"
+            "{\"<assetId>\": {\"macro\": \"...\", \"verdict\": \"BUY|SELL|WAIT\", "
+            "\"summary\": \"...\", \"confidence\": 1-5}, ...}\n\n"
+            "Dati asset:\n" + json.dumps(rows, ensure_ascii=False)
+        )
+
+    raw = await _llm_generate(system, instr, f"batch-{lang}", "")
+    if not raw:
+        return None
+
+    # Strip optional ```json fences
+    cleaned = raw.strip()
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```(?:json)?\s*|\s*```\s*$", "", cleaned, flags=re.MULTILINE).strip()
+    try:
+        data = json.loads(cleaned)
+        if not isinstance(data, dict):
+            return None
+        # Sanitise: keep only known asset ids and required fields
+        out: Dict[str, Any] = {}
+        for aid, payload in data.items():
+            if not isinstance(payload, dict):
+                continue
+            out[aid.upper()] = {
+                "macro": str(payload.get("macro") or "").strip(),
+                "verdict": str(payload.get("verdict") or "WAIT").upper(),
+                "summary": str(payload.get("summary") or "").strip(),
+                "confidence": int(payload.get("confidence") or 3),
+            }
+        return out
+    except Exception as e:  # noqa: BLE001
+        logger.warning("batch parse failed: %s | raw[:200]=%s", e, cleaned[:200])
+        return None
+
+
 @api.get("/macro/{asset_id}")
 async def macro_sentiment(asset_id: str, refresh: bool = Query(False), lang: str = Query("it")) -> Dict[str, Any]:
     asset_id = asset_id.upper()
@@ -869,7 +967,19 @@ async def macro_sentiment(asset_id: str, refresh: bool = Query(False), lang: str
 
     cache_key = f"{asset_id}__{lang}"
     if not refresh and report_date:
-        # Permanent per-report cache (never expires)
+        # Batch cache (ONE LLM call for ALL assets, cached for the whole week)
+        batch = await get_batch_ai_cache(report_date, lang)
+        if batch and asset_id in batch and batch[asset_id].get("summary"):
+            entry = batch[asset_id]
+            return {
+                "summary": entry.get("summary"),
+                "eventCount": 0,
+                "events": [],
+                "fetchedAt": _now().isoformat(),
+                "source": "batch",
+                "usedFallback": False,
+            }
+        # Permanent per-report cache (legacy)
         permanent = await get_ai_insight("macro_sent", asset_id, report_date, lang)
         if permanent:
             return permanent
@@ -944,6 +1054,20 @@ async def final_verdict(asset_id: str, refresh: bool = Query(False), lang: str =
 
     cache_key = f"{asset_id}__{lang}"
     if not refresh and report_date:
+        # Batch cache (ONE LLM call for ALL assets, cached for the whole week)
+        batch = await get_batch_ai_cache(report_date, lang)
+        if batch and asset_id in batch and batch[asset_id].get("summary"):
+            entry = batch[asset_id]
+            return {
+                "verdict": entry.get("verdict", "WAIT"),
+                "confidence": entry.get("confidence", 3),
+                "summary": entry.get("summary"),
+                "entryPrice": None,
+                "entryReportDate": report_date,
+                "priceChangePct": None,
+                "generatedAt": _now().isoformat(),
+                "source": "batch",
+            }
         permanent = await get_ai_insight("verdict", asset_id, report_date, lang)
         if permanent:
             return permanent
@@ -1417,52 +1541,61 @@ async def _prewarm_all_assets(scope: str = "core") -> None:
 
 
 async def _prewarm_ai_insights(scope: str = "all", lang: str = "it") -> None:
-    """One-shot AI generation for every asset.
+    """ONE Gemini call covers ALL assets for the entire week.
 
-    Runs Gemini ONCE per asset per (kind, reportDate, lang) and stores the
-    result in `ai_insight_cache`. Subsequent user requests serve the cached
-    text instantly with zero AI calls. This is the whole point: free-tier
-    Gemini quota suffices for one weekly batch, never for live user traffic.
+    Strategy:
+      1. Fetch every asset snapshot (so we know the reportDate + numbers).
+      2. Build ONE batched prompt with all assets, send a SINGLE LLM call.
+      3. Parse the JSON response and persist to `batch_ai_cache`
+         keyed by (reportDate, lang). Permanent until next COT release.
+
+    This replaces the per-asset prewarm loop that previously cost up to
+    18 × 3 = 54 calls. With this strategy we burn at most 1 credit per
+    week per language. Subsequent user requests are 100% cache-served.
     """
-    if not GEMINI_API_KEY:
-        logger.info("AI prewarm skipped — no GEMINI_API_KEY configured")
+    if not (GEMINI_API_KEY or EMERGENT_LLM_KEY):
+        logger.info("AI batch prewarm skipped — no API key configured")
         return
 
     asset_ids = list(ASSET_MAP.keys())
     if scope == "core":
         asset_ids = [k for k, v in ASSET_MAP.items() if v.get("core")]
 
-    logger.info("AI insight prewarm started for %d assets (lang=%s)", len(asset_ids), lang)
+    snapshots: List[Dict[str, Any]] = []
+    report_date = ""
     for aid in asset_ids:
         try:
             snap = await get_cached(aid, lang=lang)
             if snap is None:
                 snap = await _fetch_snapshot(aid, lang=lang)
-            report_date = str(snap.get("reportDate") or "")
-            if not report_date:
+            if not snap:
                 continue
-
-            # 1) macro insight (short Bloomberg note)
-            existing = await get_ai_insight("macro", aid, report_date, lang)
-            if not existing or existing.get("fallback"):
-                text, used_fallback = await generate_macro_insight(aid, snap, lang=lang)
-                await set_ai_insight("macro", aid, report_date, lang, {"text": text, "fallback": used_fallback})
-                logger.info("AI prewarm macro %s: fallback=%s", aid, used_fallback)
-            # 2) macro_sentiment endpoint cache (triggered by refresh=True)
-            try:
-                await macro_sentiment(aid, refresh=True, lang=lang)  # type: ignore[arg-type]
-            except Exception as e:  # noqa: BLE001
-                logger.warning("AI prewarm macro_sent failed for %s: %s", aid, e)
-            # 3) verdict cache
-            try:
-                await final_verdict(aid, refresh=True, lang=lang)  # type: ignore[arg-type]
-            except Exception as e:  # noqa: BLE001
-                logger.warning("AI prewarm verdict failed for %s: %s", aid, e)
-
-            await asyncio.sleep(1.5)  # pace to stay below free-tier rate limits
+            snapshots.append(snap)
+            if not report_date:
+                report_date = str(snap.get("reportDate") or "")
         except Exception as e:  # noqa: BLE001
-            logger.warning("AI prewarm failed for %s: %s", aid, e)
-    logger.info("AI insight prewarm completed")
+            logger.warning("Skipping %s during batch prewarm: %s", aid, e)
+
+    if not snapshots or not report_date:
+        logger.warning("AI batch prewarm: no snapshots / report_date — abort")
+        return
+
+    # Skip if already cached for this (reportDate, lang)
+    existing = await get_batch_ai_cache(report_date, lang)
+    if existing and not all(
+        (existing.get(aid, {}) or {}).get("summary") in (None, "") for aid in [s.get("assetId") for s in snapshots]
+    ):
+        logger.info("AI batch already cached for report=%s lang=%s — skip", report_date, lang)
+        return
+
+    logger.info("AI batch prewarm: 1 LLM call for %d assets (report=%s, lang=%s)", len(snapshots), report_date, lang)
+    batch = await generate_batch_insights(snapshots, lang)
+    if not batch:
+        logger.warning("AI batch prewarm: LLM call failed, keeping deterministic fallbacks")
+        return
+
+    await set_batch_ai_cache(report_date, lang, batch)
+    logger.info("AI batch prewarm completed: %d assets cached", len(batch))
 
 
 async def _prewarm_options() -> None:

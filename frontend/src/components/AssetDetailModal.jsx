@@ -822,8 +822,8 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
 
                     {/* Body (scrollable) */}
                     <div className="flex-1 overflow-y-auto p-6 sm:p-8 space-y-6 sm:space-y-8">
-                        {/* Top metrics */}
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        {/* Top metrics — 2 panels (Sentiment | Net Position) */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div className="bg-[#0e0e14] border border-white/[0.07] rounded-3xl p-5">
                                 <div className="text-[11px] tracking-[0.28em] uppercase text-gray-400 font-semibold mb-2">
                                     {t('modal.sentiment')}
@@ -858,15 +858,6 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                     <div className="h-full bg-[#34d399]" style={{ width: `${longPct}%` }} />
                                     <div className="h-full bg-[#fb7185]" style={{ width: `${100 - longPct}%` }} />
                                 </div>
-                            </div>
-                            <div className="bg-amber-500/[0.07] border border-amber-500/25 rounded-3xl p-5">
-                                <div className="flex items-center gap-2 mb-2">
-                                    <Activity size={12} className="text-amber-400" />
-                                    <span className="text-[11px] tracking-[0.28em] uppercase text-amber-300 font-bold">
-                                        {t('modal.macro_intel')}
-                                    </span>
-                                </div>
-                                <p className="text-[14px] leading-relaxed text-gray-200 italic">"{snapshot.macro}"</p>
                             </div>
                         </div>
 
