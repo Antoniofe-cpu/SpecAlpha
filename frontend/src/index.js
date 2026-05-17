@@ -5,6 +5,7 @@ import "@/index.css";
 import App from "@/App";
 import LandingPage from "@/pages/LandingPage";
 import AdminPanel from "@/admin/AdminPanel";
+import AccountPage from "@/pages/AccountPage";
 import { LangProvider } from "@/i18n";
 import { AuthProvider } from "@/auth/AuthContext";
 
@@ -17,6 +18,7 @@ root.render(
           <Routes>
             <Route path="/" element={<LandingPage />} />
             <Route path="/dashboard" element={<App />} />
+            <Route path="/account" element={<AccountPage />} />
             <Route path="/admin" element={<AdminPanel />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

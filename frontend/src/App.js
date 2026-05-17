@@ -28,7 +28,7 @@ import ConfluenceOpportunities from './components/ConfluenceOpportunities';
 import Logo from './components/Logo';
 import AuthModal from './auth/AuthModal';
 import { useAuth, isPremium } from './auth/AuthContext';
-import { startCheckout, openBillingPortal } from './billing/api';
+import { startCheckout } from './billing/api';
 import { track } from './admin/api';
 import { fetchAssets, fetchBulk } from './api';
 import { cn, nextSaturdayUTC } from './utils';
@@ -188,16 +188,6 @@ export default function App() {
             console.error(e);
             setBillingMsg({ type: 'error', text: 'Impossibile avviare il checkout. Riprova fra qualche secondo.' });
             setCheckoutBusy(false);
-            setTimeout(() => setBillingMsg(null), 6000);
-        }
-    };
-
-    const manageBilling = async () => {
-        try {
-            await openBillingPortal();
-        } catch (e) {
-            console.error(e);
-            setBillingMsg({ type: 'error', text: 'Portale di gestione non disponibile.' });
             setTimeout(() => setBillingMsg(null), 6000);
         }
     };
@@ -400,16 +390,15 @@ export default function App() {
                                         <Settings size={15} />
                                     </a>
                                 )}
-                                {premium && user.stripe_customer_id && (
-                                    <button
-                                        data-testid="manage-billing-btn"
-                                        onClick={manageBilling}
-                                        title="Gestisci abbonamento"
-                                        className="hidden sm:inline-flex p-2.5 rounded-2xl bg-white/[0.06] hover:bg-amber-500/15 hover:border-amber-500/40 border border-white/10 text-gray-300 transition-colors"
-                                    >
-                                        <Activity size={15} />
-                                    </button>
-                                )}
+                                <Link
+                                    to="/account"
+                                    data-testid="account-link"
+                                    title={t('app.account')}
+                                    aria-label={t('app.account')}
+                                    className="hidden sm:inline-flex p-2.5 rounded-2xl bg-white/[0.06] hover:bg-amber-500/15 hover:border-amber-500/40 border border-white/10 text-gray-300 transition-colors"
+                                >
+                                    <UserCircle2 size={15} />
+                                </Link>
                                 {!premium && !user.stripe_subscription_id && (
                                     <button
                                         data-testid="header-trial-btn"
