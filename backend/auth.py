@@ -347,11 +347,19 @@ def build_auth_router(db_getter, get_current_user) -> APIRouter:
             "trial_ends_at": now + timedelta(days=TRIAL_DAYS),
             "favorites": [],
             "created_at": now,
+            "last_login_at": now,
         }
         await db.users.insert_one(doc)
         access = create_access_token(user_id, email)
         refresh = create_refresh_token(user_id)
         _set_auth_cookies(response, access, refresh)
+        # Track signup (best-effort)
+        try:
+            from admin import log_event as _log
+            await _log(db, "register", request=request, user_id=user_id, email=email)
+            await _log(db, "trial_started", request=request, user_id=user_id, email=email, meta={"days": TRIAL_DAYS})
+        except Exception:
+            pass
         return _public_user(doc)
 
     @router.post("/login")
@@ -372,9 +380,22 @@ def build_auth_router(db_getter, get_current_user) -> APIRouter:
             raise HTTPException(status_code=401, detail="Invalid email or password")
         await _clear_failed_login(db, ident_ip)
         await _clear_failed_login(db, ident_email)
+        # Update last_login_at
+        try:
+            await db.users.update_one(
+                {"user_id": user["user_id"]},
+                {"$set": {"last_login_at": datetime.now(timezone.utc)}},
+            )
+        except Exception:
+            pass
         access = create_access_token(user["user_id"], email)
         refresh = create_refresh_token(user["user_id"])
         _set_auth_cookies(response, access, refresh)
+        try:
+            from admin import log_event as _log
+            await _log(db, "login", request=request, user_id=user["user_id"], email=email, meta={"method": "password"})
+        except Exception:
+            pass
         return _public_user(user)
 
     @router.post("/logout")

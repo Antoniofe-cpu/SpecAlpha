@@ -1,33 +1,31 @@
 """
-Speculative Alpha — Proprietary Confluence Index
+Speculative Alpha — Confluence Index v2 (semplificato).
 
-A 0-100 score that measures HOW MUCH the three institutional data streams
-agree with each other. Higher = stronger confluence (= higher probability
-the combined signal will resolve in the dominant direction).
+Tre stream equi (33.3% ciascuno):
+  1. NON-COMMERCIAL (speculatori): net positioning + WoW momentum (DIRETTO)
+  2. OPTIONS: Put/Call ratio + Gamma Exposure
+  3. COMMERCIAL (hedger): net positioning + WoW momentum, **invertito**
+     (i Commercial sono smart-money contrarian — quando sono molto long
+      → mercato bearish; quando molto short → bullish)
 
-The index is direction-agnostic by construction: it goes up when all three
-streams point the SAME way (whether long or short) with non-trivial magnitude,
-and falls when they disagree or all read neutral.
+Ogni stream ritorna un valore SIGNED in [-1, +1].
+Il Confluence Index 0-100 è funzione di:
+  - alignment (quanto i tre stream concordano sulla direzione)
+  - magnitude media (quanto è forte la convinzione)
 
-Composition (weights match the product spec):
-  • COT 40%       — Non-Commercials net positioning + WoW momentum
-  • Options 40%   — Put/Call ratio + Gamma Exposure regime
-  • Sentiment 20% — Contrarian to Commercials (retail) positioning
+Score = 100 * alignment * (0.5 + 0.5 * magnitudeAvg)
+  → con alignment=1 e magnitude=0.4  → 70
+  → con alignment=1 e magnitude=0.8  → 90
+  → con alignment=0.33 (uno contro)  → 33% * (0.5+0.5*m) ≈ 17-33
 
-Scale:
-  0   = signals fully cancel out or all flat (no edge)
-  100 = all three signals push strongly in the same direction (max confluence)
-
-Companion field `direction` ("long" / "short" / "neutral") is exposed
-separately so the UI can pair the strength badge with an arrow if desired.
+direction è derivato dal segno della media pesata.
 """
 from __future__ import annotations
 
-import math
 from typing import Dict, Any, Optional
 
 
-WEIGHTS = {"cot": 0.4, "options": 0.4, "sentiment": 0.2}
+WEIGHTS = {"nonComm": 1 / 3, "options": 1 / 3, "comm": 1 / 3}
 
 
 def _clip(value: float, lo: float, hi: float) -> float:
@@ -35,14 +33,12 @@ def _clip(value: float, lo: float, hi: float) -> float:
 
 
 # ---------------------------------------------------------------------------
-# Each component returns a SIGNED magnitude in [-1, +1]
-#   +1 = maximally bullish stance
-#   -1 = maximally bearish stance
-#    0 = neutral / no information
+# Streams
 # ---------------------------------------------------------------------------
 
-def _cot_direction(snapshot: Dict[str, Any]) -> float:
-    """Non-Commercial positioning + momentum → signed [-1, +1]."""
+
+def _noncomm_direction(snapshot: Dict[str, Any]) -> float:
+    """Non-Commercial speculators (Funds/Large Specs) — DIRETTO."""
     long_pos = snapshot.get("long", 0) or 0
     short_pos = snapshot.get("short", 0) or 0
     wow_delta = snapshot.get("wowDelta", 0) or 0
@@ -51,16 +47,14 @@ def _cot_direction(snapshot: Dict[str, Any]) -> float:
     if total <= 0:
         return 0.0
 
-    # Net positioning ratio in [-1, +1]
     net_ratio = (long_pos - short_pos) / total
-    # WoW momentum in [-1, +1] (cap at ±30k weekly delta)
+    # WoW momentum: cap at ±30k weekly delta → [-1, +1]
     momentum = max(-1.0, min(1.0, wow_delta / 30000.0))
-
     return _clip(0.6 * net_ratio + 0.4 * momentum, -1.0, 1.0)
 
 
 def _options_direction(options_data: Optional[Dict[str, Any]]) -> float:
-    """Put/Call + GEX regime → signed [-1, +1]. Returns 0 when no options data."""
+    """Put/Call ratio + Gamma Exposure → [-1, +1]. Returns 0 when missing."""
     if not options_data or not isinstance(options_data, dict):
         return 0.0
 
@@ -71,7 +65,7 @@ def _options_direction(options_data: Optional[Dict[str, Any]]) -> float:
     if pcr is not None:
         try:
             pcr_val = float(pcr)
-            # Low PCR (few puts) is bullish: map 0.5→+0.6, 1.0→0, 1.5→-0.6
+            # Low PCR (poche put) = bullish: 0.5→+0.6, 1.0→0, 1.5→-0.6
             pcr_signal = _clip((1.0 - pcr_val) * 1.2, -1.0, 1.0)
         except (TypeError, ValueError):
             pass
@@ -80,7 +74,7 @@ def _options_direction(options_data: Optional[Dict[str, Any]]) -> float:
     if net_gex is not None:
         try:
             gex_val = float(net_gex)
-            # Positive GEX → mild bullish (stable/pin); negative → bearish (vol expansion)
+            # GEX positivo → bullish stabile; negativo → bearish (espansione vol)
             gex_signal = _clip(gex_val / 1e9, -0.7, 0.7)
         except (TypeError, ValueError):
             pass
@@ -88,42 +82,47 @@ def _options_direction(options_data: Optional[Dict[str, Any]]) -> float:
     return _clip(0.6 * pcr_signal + 0.4 * gex_signal, -1.0, 1.0)
 
 
-def _sentiment_direction(snapshot: Dict[str, Any]) -> float:
-    """Contrarian to retail (Commercials) → signed [-1, +1]."""
-    r_long = snapshot.get("retailLong", 0) or 0
-    r_short = snapshot.get("retailShort", 0) or 0
-    total = r_long + r_short
+def _comm_direction(snapshot: Dict[str, Any]) -> float:
+    """Commercial hedgers (Producers/Users) — INVERTITO (contrarian signal).
+
+    Commercials are smart-money hedgers. Heavy long Commercials → mercato bearish.
+    Heavy short Commercials → mercato bullish. We negate the raw direction.
+    """
+    c_long = snapshot.get("commercialLong", 0) or snapshot.get("retailLong", 0) or 0
+    c_short = snapshot.get("commercialShort", 0) or snapshot.get("retailShort", 0) or 0
+    c_wow = snapshot.get("commercialWowDelta", 0) or snapshot.get("retailWowDelta", 0) or 0
+    total = c_long + c_short
     if total <= 0:
         return 0.0
 
-    retail_long_pct = (r_long / total) * 100.0
-    # Retail extremely long → bearish contrarian (-1); extremely short → bullish contrarian (+1)
-    # Linear: 50% retail long → 0; 100% → -1; 0% → +1
-    return _clip((50.0 - retail_long_pct) / 50.0, -1.0, 1.0)
+    net_ratio = (c_long - c_short) / total
+    momentum = max(-1.0, min(1.0, c_wow / 30000.0))
+    raw = 0.6 * net_ratio + 0.4 * momentum
+    # Invert: commercials are contrarian
+    return _clip(-raw, -1.0, 1.0)
 
 
 # ---------------------------------------------------------------------------
-# Aggregation: alignment-based confluence
+# Aggregation
 # ---------------------------------------------------------------------------
+
 
 def _label_for_score(score: float) -> str:
-    """Strength-only label (no directional language)."""
     if score >= 80:
         return "Very High"
-    elif score >= 60:
+    if score >= 60:
         return "High"
-    elif score >= 40:
+    if score >= 40:
         return "Moderate"
-    elif score >= 20:
+    if score >= 20:
         return "Low"
-    else:
-        return "Very Low"
+    return "Very Low"
 
 
 def _direction_label(signed_avg: float) -> str:
     if signed_avg > 0.15:
         return "long"
-    elif signed_avg < -0.15:
+    if signed_avg < -0.15:
         return "short"
     return "neutral"
 
@@ -132,37 +131,34 @@ def calculate_confluence_index(
     cot_snapshot: Dict[str, Any],
     options_data: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """Compute the Confluence Index for an asset.
+    """Compute the v2 Confluence Index.
 
-    Returns a dict with:
-        score        — 0..100 (direction-agnostic confluence strength)
-        label        — "Very Low".."Very High"
-        direction    — "long" / "short" / "neutral" (companion sign)
-        components   — per-stream signed values (-1..+1)
-        weights      — weights used in aggregation
+    Returns:
+        score:      0..100 (alignment strength × magnitude)
+        label:      "Very Low" .. "Very High"
+        direction:  "long" / "short" / "neutral"
+        components: signed value per stream + weights + signedAvg/magnitudeAvg
     """
-    d_cot = _cot_direction(cot_snapshot)
+    d_nc = _noncomm_direction(cot_snapshot)
     d_opt = _options_direction(options_data)
-    d_sent = _sentiment_direction(cot_snapshot)
+    d_cm = _comm_direction(cot_snapshot)
 
-    # Renormalise weights when a component is missing/empty so its absence
-    # does not penalise the overall score (e.g. when no options data exists
-    # for FX pairs, we don't want CI to halve just because of that gap).
-    components_signal = [
-        ("cot", d_cot, WEIGHTS["cot"]),
+    # Renormalise weights when a stream is missing (treats 0 as "no data")
+    streams = [
+        ("nonComm", d_nc, WEIGHTS["nonComm"]),
         ("options", d_opt, WEIGHTS["options"]),
-        ("sentiment", d_sent, WEIGHTS["sentiment"]),
+        ("comm", d_cm, WEIGHTS["comm"]),
     ]
-    present = [(name, val, w) for name, val, w in components_signal if abs(val) > 0.01]
+    present = [(n, v, w) for n, v, w in streams if abs(v) > 0.01]
     if not present:
         return {
             "score": 0.0,
             "label": _label_for_score(0.0),
             "direction": "neutral",
             "components": {
-                "cot": round(d_cot, 3),
+                "nonComm": round(d_nc, 3),
                 "options": round(d_opt, 3),
-                "sentiment": round(d_sent, 3),
+                "comm": round(d_cm, 3),
                 "weights": WEIGHTS,
                 "signedAvg": 0.0,
                 "magnitudeAvg": 0.0,
@@ -174,14 +170,11 @@ def calculate_confluence_index(
     magnitude_avg = sum(w * abs(v) for _, v, w in present) / total_w
     alignment = abs(signed_avg) / magnitude_avg if magnitude_avg > 1e-9 else 0.0
 
-    # Confluence formula optimised for stream agreement:
-    # - alignment dominates (0..1 mapped to 0..1.0 score multiplier)
-    # - magnitude is a softening modulator with HIGH floor (0.6) so that even
-    #   weak-but-aligned signals score in the High band.
-    # With alignment=1.0, magnitude=0.3 → 100 * 1.0 * (0.6 + 0.4*0.3) = 72
-    # With alignment=1.0, magnitude=0.7 → 100 * 1.0 * (0.6 + 0.4*0.7) = 88
-    # With alignment=0.5, magnitude=0.5 → 100 * 0.5 * (0.6 + 0.4*0.5) = 40
-    score = 100.0 * alignment * (0.6 + 0.4 * magnitude_avg)
+    # Pure equally-weighted formula: alignment * (0.5 + 0.5*magnitude) on a 0..100 scale.
+    # With alignment=1, magnitude=0.4 → 70  (signal strong & aligned)
+    # With alignment=1, magnitude=0.8 → 90
+    # With alignment=0.33, magnitude=0.5 → 25 (uno contro due)
+    score = 100.0 * alignment * (0.5 + 0.5 * magnitude_avg)
     score = _clip(score, 0.0, 100.0)
 
     return {
@@ -189,9 +182,9 @@ def calculate_confluence_index(
         "label": _label_for_score(score),
         "direction": _direction_label(signed_avg),
         "components": {
-            "cot": round(d_cot, 3),
+            "nonComm": round(d_nc, 3),
             "options": round(d_opt, 3),
-            "sentiment": round(d_sent, 3),
+            "comm": round(d_cm, 3),
             "weights": WEIGHTS,
             "signedAvg": round(signed_avg, 3),
             "magnitudeAvg": round(magnitude_avg, 3),

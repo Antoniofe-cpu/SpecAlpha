@@ -433,9 +433,13 @@ from auth import (  # noqa: E402
     get_user_resolver,
     seed_admin,
 )
+from billing import build_billing_router  # noqa: E402
+from admin import build_admin_router, ensure_admin_indexes, log_event  # noqa: E402
 
 _get_current_user, _get_optional_user = get_user_resolver(lambda: db)
 api.include_router(build_auth_router(lambda: db, _get_current_user))
+api.include_router(build_billing_router(lambda: db, _get_current_user))
+api.include_router(build_admin_router(lambda: db, _get_current_user))
 
 
 @api.get("/health")
@@ -1588,6 +1592,7 @@ app.add_middleware(
     IPRateLimiter,
     max_requests=int(os.environ.get("RATE_LIMIT_MAX", "120")),
     window_seconds=int(os.environ.get("RATE_LIMIT_WINDOW", "60")),
+    bypass_prefixes=("/api/health", "/api/billing/webhook"),
 )
 
 
@@ -1746,6 +1751,7 @@ async def on_startup() -> None:
     # Auth bootstrap: indexes + admin seed (idempotent)
     try:
         await ensure_auth_indexes(db)
+        await ensure_admin_indexes(db)
         await seed_admin(db)
     except Exception as e:  # noqa: BLE001
         logger.warning("auth bootstrap failed: %s", e)

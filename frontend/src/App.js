@@ -14,6 +14,7 @@ import {
     LogIn,
     LogOut,
     UserCircle2,
+    Settings,
 } from 'lucide-react';
 import './App.css';
 import AssetCard from './components/AssetCard';
@@ -23,6 +24,8 @@ import HeatmapStrip from './components/HeatmapStrip';
 import CurrencyStrengthIndex from './components/CurrencyStrengthIndex';
 import AuthModal from './auth/AuthModal';
 import { useAuth, isPremium } from './auth/AuthContext';
+import { startCheckout, openBillingPortal } from './billing/api';
+import { track } from './admin/api';
 import { fetchAssets, fetchBulk, refreshCache } from './api';
 import { cn, nextSaturdayUTC } from './utils';
 import { useT } from './i18n';
@@ -99,7 +102,7 @@ function LangToggle({ inline = false }) {
 
 export default function App() {
     const { t, lang } = useT();
-    const { user, logout, setFavorites: persistFavorites } = useAuth();
+    const { user, logout, setFavorites: persistFavorites, refreshMe } = useAuth();
     const premium = isPremium(user);
     const [meta, setMeta] = useState([]);
     const [snapshots, setSnapshots] = useState([]);
@@ -113,6 +116,63 @@ export default function App() {
     const [favorites, setFavoritesState] = useState(loadFavorites());
     const [showFavOnly, setShowFavOnly] = useState(false);
     const [refreshing, setRefreshing] = useState(false);
+    const [billingMsg, setBillingMsg] = useState(null);
+    const [checkoutBusy, setCheckoutBusy] = useState(false);
+
+    // Detect billing success/cancel redirect (?billing=success | cancel)
+    useEffect(() => {
+        const params = new URLSearchParams(window.location.search);
+        const b = params.get('billing');
+        if (b === 'success') {
+            setBillingMsg({ type: 'success', text: 'Benvenuto Premium! La tua sottoscrizione è attiva 🎉' });
+            // Poll a couple of times to let the webhook land
+            const refresh = async () => {
+                for (let i = 0; i < 6; i++) {
+                    // eslint-disable-next-line no-await-in-loop
+                    await refreshMe();
+                    // eslint-disable-next-line no-await-in-loop
+                    await new Promise((r) => setTimeout(r, 2500));
+                }
+            };
+            refresh();
+            // Strip ?billing= from URL
+            const url = window.location.pathname + window.location.hash;
+            window.history.replaceState({}, document.title, url);
+            setTimeout(() => setBillingMsg(null), 10000);
+        } else if (b === 'cancel') {
+            setBillingMsg({ type: 'info', text: 'Pagamento annullato. Puoi riprovare quando vuoi.' });
+            const url = window.location.pathname + window.location.hash;
+            window.history.replaceState({}, document.title, url);
+            setTimeout(() => setBillingMsg(null), 6000);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    const startTrial = async () => {
+        if (!user) {
+            setShowAuth(true);
+            return;
+        }
+        setCheckoutBusy(true);
+        try {
+            await startCheckout();
+        } catch (e) {
+            console.error(e);
+            setBillingMsg({ type: 'error', text: 'Impossibile avviare il checkout. Riprova fra qualche secondo.' });
+            setCheckoutBusy(false);
+            setTimeout(() => setBillingMsg(null), 6000);
+        }
+    };
+
+    const manageBilling = async () => {
+        try {
+            await openBillingPortal();
+        } catch (e) {
+            console.error(e);
+            setBillingMsg({ type: 'error', text: 'Portale di gestione non disponibile.' });
+            setTimeout(() => setBillingMsg(null), 6000);
+        }
+    };
 
     // When user logs in, prefer server-side favorites (merge with local first time)
     useEffect(() => {
@@ -168,6 +228,7 @@ export default function App() {
     useEffect(() => {
         loadData('core');
         loadAllCurrencies();
+        track('page_view', { path: '/' });
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
@@ -220,8 +281,14 @@ export default function App() {
 
     const handleCardClick = (assetId) => {
         if (isAssetLocked(assetId)) {
-            setShowAuth(true);
+            track('paywall_click', { assetId });
+            if (user) {
+                startTrial();
+            } else {
+                setShowAuth(true);
+            }
         } else {
+            track('asset_view', { assetId });
             setActiveId(assetId);
         }
     };
@@ -309,6 +376,36 @@ export default function App() {
                                         </span>
                                     )}
                                 </div>
+                                {user.role === 'admin' && (
+                                    <a
+                                        href="/admin"
+                                        data-testid="admin-link"
+                                        title="Pannello admin"
+                                        className="hidden sm:inline-flex p-2.5 rounded-2xl bg-white/[0.06] hover:bg-amber-500/15 hover:border-amber-500/40 border border-white/10 text-amber-300 transition-colors"
+                                    >
+                                        <Settings size={15} />
+                                    </a>
+                                )}
+                                {premium && user.stripe_customer_id && (
+                                    <button
+                                        data-testid="manage-billing-btn"
+                                        onClick={manageBilling}
+                                        title="Gestisci abbonamento"
+                                        className="hidden sm:inline-flex p-2.5 rounded-2xl bg-white/[0.06] hover:bg-amber-500/15 hover:border-amber-500/40 border border-white/10 text-gray-300 transition-colors"
+                                    >
+                                        <Activity size={15} />
+                                    </button>
+                                )}
+                                {!premium && (
+                                    <button
+                                        data-testid="header-trial-btn"
+                                        onClick={startTrial}
+                                        disabled={checkoutBusy}
+                                        className="hidden sm:inline-flex px-3 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black text-[11px] font-bold uppercase tracking-[0.18em] items-center gap-1.5 transition disabled:opacity-60"
+                                    >
+                                        Inizia la prova
+                                    </button>
+                                )}
                                 <button
                                     data-testid="logout-btn"
                                     onClick={logout}
@@ -333,6 +430,22 @@ export default function App() {
             </header>
 
             <main className="max-w-7xl mx-auto px-6 sm:px-8 py-10 space-y-10 relative z-10">
+                {/* Billing toast */}
+                {billingMsg && (
+                    <div
+                        data-testid="billing-toast"
+                        className={cn(
+                            'rounded-2xl px-5 py-4 flex items-center gap-3 text-[13px] border',
+                            billingMsg.type === 'success' && 'bg-emerald-500/[0.08] border-emerald-500/40 text-emerald-200',
+                            billingMsg.type === 'info' && 'bg-amber-500/[0.08] border-amber-500/30 text-amber-200',
+                            billingMsg.type === 'error' && 'bg-rose-500/[0.08] border-rose-500/30 text-rose-200',
+                        )}
+                    >
+                        <Activity size={16} />
+                        <span>{billingMsg.text}</span>
+                    </div>
+                )}
+
                 {/* Toolbar */}
                 <div className="flex flex-wrap items-center justify-between gap-5">
                     <div>
@@ -413,10 +526,11 @@ export default function App() {
                         </div>
                         <button
                             data-testid="paywall-cta-btn"
-                            onClick={() => setShowAuth(true)}
-                            className="px-5 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black font-bold uppercase tracking-[0.18em] text-[12px] transition flex items-center gap-2"
+                            onClick={startTrial}
+                            disabled={checkoutBusy}
+                            className="px-5 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black font-bold uppercase tracking-[0.18em] text-[12px] transition flex items-center gap-2 disabled:opacity-60"
                         >
-                            <LogIn size={14} /> Inizia la prova
+                            <LogIn size={14} /> {checkoutBusy ? 'Apertura…' : 'Inizia la prova'}
                         </button>
                     </div>
                 )}
