@@ -159,14 +159,51 @@ async def refresh_user_from_stripe_if_stale(
         - cached status is "free"/None but a stripe_subscription_id exists
           (webhook hasn't fired yet)
         - last sync older than `max_age_sec`
+        - user has no sub_id but their email matches a Stripe customer
+          (catches the case where the webhook never fired for THIS env)
     """
     sub_id = user.get("stripe_subscription_id")
-    if not sub_id:
-        return user
-    status = user.get("subscription_status") or "free"
-    trial_end = user.get("trial_ends_at")
+    email = (user.get("email") or "").lower()
     now = datetime.now(timezone.utc)
 
+    if not sub_id:
+        # Try email lookup on Stripe — covers users whose checkout completed
+        # but the webhook never reached this environment.
+        last_sync = user.get("stripe_synced_at")
+        last_sync_seconds_ago = None
+        if isinstance(last_sync, datetime):
+            ls = last_sync if last_sync.tzinfo else last_sync.replace(tzinfo=timezone.utc)
+            last_sync_seconds_ago = (now - ls).total_seconds()
+        # Throttle: try at most every 5 minutes for users without a sub_id.
+        if last_sync_seconds_ago is not None and last_sync_seconds_ago < 300:
+            return user
+        if not email:
+            return user
+        try:
+            stripe.api_key = _stripe_key()
+            customers = stripe.Customer.list(email=email, limit=3)
+            for c in customers.data:
+                subs = stripe.Subscription.list(customer=c.id, status="all", limit=5)
+                if subs.data:
+                    # Prefer trialing/active > past_due > canceled
+                    order = {"trialing": 0, "active": 0, "past_due": 1, "canceled": 2, "incomplete": 3}
+                    subs.data.sort(key=lambda s: order.get(s.status, 9))
+                    sub = subs.data[0]
+                    updated = await _apply_subscription_to_user(db, sub, user_id=user.get("user_id"))
+                    if updated:
+                        return updated
+            # No subscription found — stamp synced_at to avoid hammering Stripe
+            await db.users.update_one(
+                {"user_id": user["user_id"]},
+                {"$set": {"stripe_synced_at": now}},
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("email-lookup stripe refresh failed for %s: %s", user.get("user_id"), e)
+        return user
+
+    # Has sub_id → standard refresh logic
+    status = user.get("subscription_status") or "free"
+    trial_end = user.get("trial_ends_at")
     stale = False
     if status == "trialing":
         if not trial_end or (isinstance(trial_end, datetime) and trial_end <= now):

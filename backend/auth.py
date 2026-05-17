@@ -422,7 +422,7 @@ def build_auth_router(db_getter, get_current_user) -> APIRouter:
             from billing import refresh_user_from_stripe_if_stale
             user = await asyncio.wait_for(
                 refresh_user_from_stripe_if_stale(db_getter(), user),
-                timeout=2.5,
+                timeout=5.0,
             )
         except asyncio.TimeoutError:
             logger.info("/me self-heal timed out — returning cached user state")
