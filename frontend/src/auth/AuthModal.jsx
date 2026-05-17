@@ -12,6 +12,14 @@ export default function AuthModal({ open, onClose, initialMode = 'login' }) {
     const [error, setError] = useState('');
     const [busy, setBusy] = useState(false);
 
+    // Reset to login mode every time the modal opens (and clear any prior error)
+    React.useEffect(() => {
+        if (open) {
+            setMode(initialMode);
+            setError('');
+        }
+    }, [open, initialMode]);
+
     if (!open) return null;
 
     const submit = async (e) => {

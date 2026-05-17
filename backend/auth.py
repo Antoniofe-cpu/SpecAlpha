@@ -196,6 +196,22 @@ def get_user_resolver(db_getter):
     return get_current_user, get_optional_user
 
 
+def _client_ip(request: Request) -> str:
+    """Resolve the real client IP behind reverse proxies (k8s ingress).
+
+    `request.client.host` is the immediate TCP peer (often a service-mesh
+    sidecar in our deployment), which can rotate per-request and defeat
+    per-IP controls. Prefer X-Forwarded-For when present.
+    """
+    fwd = request.headers.get("x-forwarded-for")
+    if fwd:
+        return fwd.split(",")[0].strip()
+    real = request.headers.get("x-real-ip")
+    if real:
+        return real.strip()
+    return request.client.host if request.client else "anon"
+
+
 # ---------------------------------------------------------------------------
 # Brute force
 # ---------------------------------------------------------------------------
@@ -342,15 +358,20 @@ def build_auth_router(db_getter, get_current_user) -> APIRouter:
     async def login(body: LoginBody, request: Request, response: Response):
         db = db_getter()
         email = body.email.lower()
-        client_ip = request.client.host if request.client else "anon"
-        ident = f"{client_ip}:{email}"
-        if await _is_locked_out(db, ident):
+        client_ip = _client_ip(request)
+        # Two-key lockout: by IP+email AND by email alone. Either tripping locks out.
+        # This defeats IP-rotation attacks while still allowing brief shared-NAT collisions.
+        ident_ip = f"{client_ip}:{email}"
+        ident_email = f"email:{email}"
+        if await _is_locked_out(db, ident_ip) or await _is_locked_out(db, ident_email):
             raise HTTPException(status_code=429, detail="Too many failed attempts, try again later")
         user = await db.users.find_one({"email": email})
         if not user or not user.get("password_hash") or not verify_password(body.password, user["password_hash"]):
-            await _record_failed_login(db, ident)
+            await _record_failed_login(db, ident_ip)
+            await _record_failed_login(db, ident_email)
             raise HTTPException(status_code=401, detail="Invalid email or password")
-        await _clear_failed_login(db, ident)
+        await _clear_failed_login(db, ident_ip)
+        await _clear_failed_login(db, ident_email)
         access = create_access_token(user["user_id"], email)
         refresh = create_refresh_token(user["user_id"])
         _set_auth_cookies(response, access, refresh)
