@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { trackConversion } from '../analytics';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const ax = axios.create({ baseURL: API, withCredentials: true, timeout: 20000 });
@@ -12,6 +13,9 @@ export async function startCheckout() {
         origin_url: window.location.origin,
     });
     if (data?.url) {
+        // Google Ads conversion: user about to land on Stripe Checkout.
+        // Fire BEFORE the redirect so the tag has time to send.
+        try { trackConversion('trial_start', { value: 24.99, currency: 'USD' }); } catch {}
         window.location.href = data.url;
     } else {
         throw new Error('No checkout URL');

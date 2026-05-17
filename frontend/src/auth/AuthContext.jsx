@@ -146,6 +146,8 @@ export function AuthProvider({ children }) {
     const register = useCallback(async (email, password, name) => {
         const { data } = await ax.post('/auth/register', { email, password, name });
         setUser(data);
+        // Google Ads conversion: account created
+        try { (await import('../analytics')).trackConversion('signup', { method: 'email' }); } catch {}
         await routeAfterAuth(data);
         return data;
     }, []);
