@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
     HelpCircle,
@@ -24,7 +25,6 @@ import HelpModal from './components/HelpModal';
 import HeatmapStrip from './components/HeatmapStrip';
 import CurrencyStrengthIndex from './components/CurrencyStrengthIndex';
 import ConfluenceOpportunities from './components/ConfluenceOpportunities';
-import Landing from './components/Landing';
 import AuthModal from './auth/AuthModal';
 import { useAuth, isPremium } from './auth/AuthContext';
 import { startCheckout, openBillingPortal } from './billing/api';
@@ -352,19 +352,14 @@ export default function App() {
             {/* Header */}
             <header className="sticky top-0 z-[60] backdrop-blur-xl bg-[#050505]/80 border-b border-white/8">
                 <div className="max-w-7xl mx-auto px-6 sm:px-8 py-5 flex items-center justify-between gap-4">
-                    <div className="flex items-center gap-3">
+                    <Link to="/" className="flex items-center gap-3 group">
                         <div className="w-10 h-10 rounded-lg bg-amber-500 text-black flex items-center justify-center shadow-[0_0_24px_-6px_rgba(245,158,11,0.7)]">
                             <Target size={20} strokeWidth={2.5} />
                         </div>
-                        <div>
-                            <h1 className="font-display text-lg sm:text-xl font-bold text-white tracking-tight">
-                                Speculative <span className="text-amber-400">Alpha</span>
-                            </h1>
-                            <p className="text-[12px] tracking-[0.3em] uppercase text-gray-400 font-semibold mt-0.5">
-                                {t('app.tagline')}
-                            </p>
-                        </div>
-                    </div>
+                        <h1 className="font-display text-lg sm:text-xl font-bold text-white tracking-tight">
+                            Speculative <span className="text-amber-400">Alpha</span>
+                        </h1>
+                    </Link>
                     <div className="flex items-center gap-2 sm:gap-3">
                         <div className="hidden md:flex flex-col items-end mr-2">
                             <div className="flex items-center gap-2">
@@ -477,16 +472,6 @@ export default function App() {
                         <Activity size={16} />
                         <span>{billingMsg.text}</span>
                     </div>
-                )}
-
-                {/* Landing hero — only for anonymous visitors */}
-                {!user && (
-                    <Landing
-                        onCta={() => {
-                            const el = document.getElementById('asset-grid-anchor');
-                            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                        }}
-                    />
                 )}
 
                 {/* Toolbar */}
