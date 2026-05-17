@@ -137,6 +137,7 @@ def _public_user(doc: Dict[str, Any]) -> Dict[str, Any]:
         "cancel_at_period_end": bool(doc.get("cancel_at_period_end")),
         "stripe_customer_id": doc.get("stripe_customer_id"),
         "stripe_subscription_id": doc.get("stripe_subscription_id"),
+        "has_used_trial": bool(doc.get("has_used_trial")),
         "favorites": doc.get("favorites") or [],
         "has_password": bool(doc.get("password_hash")),
         "google_linked": bool(doc.get("google_id")),

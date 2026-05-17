@@ -177,8 +177,8 @@ export default function AccountPage() {
 
                     {/* Actions */}
                     <div className="mt-6 flex flex-wrap gap-3">
-                        {/* No active sub → start trial */}
-                        {!user.stripe_subscription_id && (
+                        {/* Free user, never trialed → start trial */}
+                        {!premium && !user.stripe_subscription_id && !user.has_used_trial && (
                             <button
                                 data-testid="account-start-trial-btn"
                                 onClick={handleCheckout}
@@ -187,6 +187,18 @@ export default function AccountPage() {
                             >
                                 {busy ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
                                 {t('account.cta_start_trial')}
+                            </button>
+                        )}
+                        {/* Free user, already trialed once → subscribe directly */}
+                        {!premium && !user.stripe_subscription_id && user.has_used_trial && (
+                            <button
+                                data-testid="account-subscribe-btn"
+                                onClick={handleCheckout}
+                                disabled={busy}
+                                className="px-5 py-3 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black font-bold uppercase tracking-[0.18em] text-[12px] transition flex items-center gap-2 disabled:opacity-60"
+                            >
+                                {busy ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                                {t('account.cta_subscribe')}
                             </button>
                         )}
                         {/* Has sub → manage in Stripe Portal */}
@@ -201,19 +213,14 @@ export default function AccountPage() {
                                 {t('account.cta_manage')}
                             </button>
                         )}
-                        {/* Cancelled → re-subscribe */}
-                        {status === 'canceled' && !user.stripe_subscription_id && (
-                            <button
-                                data-testid="account-resubscribe-btn"
-                                onClick={handleCheckout}
-                                disabled={busy}
-                                className="px-5 py-3 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black font-bold uppercase tracking-[0.18em] text-[12px] transition flex items-center gap-2 disabled:opacity-60"
-                            >
-                                {busy ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-                                {t('account.cta_resubscribe')}
-                            </button>
-                        )}
                     </div>
+
+                    {/* Trial-already-used notice */}
+                    {!premium && user.has_used_trial && !user.stripe_subscription_id && (
+                        <p className="text-[11px] text-amber-300/80 mt-4 leading-relaxed bg-amber-500/[0.06] border border-amber-500/20 rounded-xl px-3 py-2.5">
+                            {t('account.trial_already_used')}
+                        </p>
+                    )}
 
                     <p className="text-[11px] text-gray-500 mt-5 leading-relaxed">
                         {t('account.manage_hint')}

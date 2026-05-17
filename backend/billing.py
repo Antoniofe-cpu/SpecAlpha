@@ -49,7 +49,19 @@ def _webhook_secret() -> str:
     return s
 
 
-def _payment_link() -> str:
+def _payment_link(no_trial: bool = False) -> str:
+    """Return the Stripe Payment Link URL.
+
+    When `no_trial=True` (user has already consumed their free trial) the code
+    tries to use the dedicated `STRIPE_PAYMENT_LINK_NO_TRIAL` env var. If the
+    env var is missing it falls back to the standard one — in that case make
+    sure the link is configured in Stripe Dashboard to *not* re-offer a trial
+    to returning customers.
+    """
+    if no_trial:
+        alt = os.environ.get("STRIPE_PAYMENT_LINK_NO_TRIAL")
+        if alt:
+            return alt
     p = os.environ.get("STRIPE_PAYMENT_LINK")
     if not p:
         raise RuntimeError("STRIPE_PAYMENT_LINK env var is required")
@@ -116,6 +128,10 @@ async def _apply_subscription_to_user(
         "cancel_at_period_end": bool(sub.get("cancel_at_period_end")),
         "stripe_synced_at": datetime.now(timezone.utc),
     }
+    # Once we have seen ANY subscription (trial or paid), the user has consumed
+    # their one allowed free trial. This blocks re-running the 7-day promo.
+    if not user.get("has_used_trial"):
+        update["has_used_trial"] = True
     trial_end = _utc_from_ts(sub.get("trial_end"))
     if trial_end is not None:
         update["trial_ends_at"] = trial_end
@@ -200,8 +216,14 @@ def build_billing_router(db_getter, get_current_user) -> APIRouter:
 
     @router.post("/checkout")
     async def checkout(body: CheckoutBody, request: Request, user: Dict[str, Any] = Depends(get_current_user)):
-        """Return the Stripe Payment Link URL pre-filled for this user."""
-        link = _payment_link()
+        """Return the Stripe Payment Link URL pre-filled for this user.
+
+        If the user has already consumed their free trial we route them to the
+        no-trial Payment Link variant (env `STRIPE_PAYMENT_LINK_NO_TRIAL`),
+        falling back to the standard link otherwise.
+        """
+        used_trial = bool(user.get("has_used_trial"))
+        link = _payment_link(no_trial=used_trial)
         params = {
             "client_reference_id": user["user_id"],
             "prefilled_email": user["email"],
@@ -210,7 +232,11 @@ def build_billing_router(db_getter, get_current_user) -> APIRouter:
         url = f"{link}{sep}{urllib.parse.urlencode(params)}"
         try:
             from admin import log_event as _log
-            await _log(db_getter(), "checkout_start", request=request, user_id=user["user_id"], email=user["email"])
+            await _log(
+                db_getter(), "checkout_start", request=request,
+                user_id=user["user_id"], email=user["email"],
+                meta={"variant": "no_trial" if used_trial else "trial"},
+            )
         except Exception:
             pass
         return {"url": url}

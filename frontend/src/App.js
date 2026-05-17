@@ -399,7 +399,7 @@ export default function App() {
                                 >
                                     <UserCircle2 size={15} />
                                 </Link>
-                                {!premium && !user.stripe_subscription_id && (
+                                {!premium && !user.stripe_subscription_id && !user.has_used_trial && (
                                     <button
                                         data-testid="header-trial-btn"
                                         onClick={startTrial}
@@ -407,6 +407,16 @@ export default function App() {
                                         className="hidden sm:inline-flex px-3 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black text-[11px] font-bold uppercase tracking-[0.18em] items-center gap-1.5 transition disabled:opacity-60"
                                     >
                                         {t('app.start_trial')}
+                                    </button>
+                                )}
+                                {!premium && !user.stripe_subscription_id && user.has_used_trial && (
+                                    <button
+                                        data-testid="header-subscribe-btn"
+                                        onClick={startTrial}
+                                        disabled={checkoutBusy}
+                                        className="hidden sm:inline-flex px-3 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black text-[11px] font-bold uppercase tracking-[0.18em] items-center gap-1.5 transition disabled:opacity-60"
+                                    >
+                                        {t('app.subscribe')}
                                     </button>
                                 )}
                                 {!premium && user.stripe_subscription_id && (
