@@ -31,11 +31,11 @@ const STR = {
 
         // Landing
         'landing.kicker': 'Speculative Alpha',
-        'landing.title_a': 'Vedi',
-        'landing.title_b': 'cosa muove',
-        'landing.title_c': 'i mercati prima',
-        'landing.title_d': 'degli altri.',
-        'landing.subtitle': 'Tre stream istituzionali — COT Non-Commercial, Options Flow, Commercial Hedger — convergono in un solo numero da 0 a 100. Dati pubblici CFTC, zero opinioni, solo posizionamento reale dello smart money.',
+        'landing.title_a': 'Dove',
+        'landing.title_b': 'si muove',
+        'landing.title_c': 'il capitale',
+        'landing.title_d': 'istituzionale.',
+        'landing.subtitle': 'Tre stream. Un segnale. Zero rumore.',
         'landing.stat1_v': '18',
         'landing.stat1_l': 'Asset coperti',
         'landing.stat2_v': '0-100',
@@ -394,11 +394,11 @@ const STR = {
 
         // Landing
         'landing.kicker': 'Speculative Alpha',
-        'landing.title_a': 'See',
-        'landing.title_b': 'what moves',
-        'landing.title_c': 'the markets before',
-        'landing.title_d': 'anyone else.',
-        'landing.subtitle': 'Three institutional streams — COT Non-Commercial, Options Flow, Commercial Hedger — converge into a single 0-100 score. Public CFTC data, zero opinions, only the real positioning of smart money.',
+        'landing.title_a': 'Where',
+        'landing.title_b': 'institutional',
+        'landing.title_c': 'capital',
+        'landing.title_d': 'moves.',
+        'landing.subtitle': 'Three streams. One signal. Zero noise.',
         'landing.stat1_v': '18',
         'landing.stat1_l': 'Assets covered',
         'landing.stat2_v': '0-100',
