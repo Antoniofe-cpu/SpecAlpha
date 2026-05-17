@@ -460,6 +460,12 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
             const EVENT_LH = 4.2;     // mm per line — generous (real ~3.3mm)
             const SUMMARY_MAX_LINES = 7;
 
+            // CRITICAL: splitTextToSize uses the CURRENT font/size to compute line widths.
+            // We must set the exact same font we'll render with, otherwise the lines will
+            // overflow the panel (this was the bug — previous block left font at 6.2pt while
+            // we then rendered the summary at 8pt → text was ~30% wider than computed).
+            pdf.setFont('helvetica', 'normal');
+            pdf.setFontSize(SUMMARY_FONT);
             const summaryLinesAll = pdf.splitTextToSize(summaryText, W - M * 2 - 10);
             const summaryLines = summaryLinesAll.slice(0, SUMMARY_MAX_LINES);
             const summaryRowH = summaryLines.length * SUMMARY_LH;
@@ -474,6 +480,9 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
             const evRightPad = 38; // reserve for "prev xxx" right-aligned column
             const evMaxW = (W - M - evRightPad) - evColX.event;
 
+            // Compute wrap for event labels with the same font we will render with.
+            pdf.setFont('helvetica', 'normal');
+            pdf.setFontSize(EVENT_FONT);
             const eventsRows = eventsList.map((e) => {
                 const lines = pdf.splitTextToSize(String(e.event || ''), evMaxW);
                 const wrapped = lines.length > 2 ? lines.slice(0, 2) : lines; // cap at 2 lines
@@ -503,6 +512,24 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
             pdf.setFontSize(SUMMARY_FONT);
             pdf.text(summaryLines, M + 4, y + 11, { lineHeightFactor: 1.4 });
 
+            // Helper: render N filled amber squares to represent the impact "stars".
+            // helvetica encoding doesn't include ★/☆ glyphs, so we draw shapes instead.
+            const drawImpactDots = (count, cx, cy) => {
+                const size = 1.6;
+                const gap = 0.8;
+                setFill(AMBER);
+                setDraw(AMBER);
+                pdf.setLineWidth(0.1);
+                for (let i = 0; i < 3; i++) {
+                    const x = cx + i * (size + gap);
+                    if (i < count) {
+                        pdf.rect(x, cy - size, size, size, 'F');
+                    } else {
+                        pdf.rect(x, cy - size, size, size, 'D');
+                    }
+                }
+            };
+
             // Events table
             if (eventsRows.length > 0) {
                 let evY = y + 10 + summaryRowH + 4;
@@ -512,17 +539,15 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                 pdf.setFont('helvetica', 'normal');
                 pdf.setFontSize(EVENT_FONT);
                 eventsRows.forEach(({ e, lines }) => {
-                    // Country
+                    // Country code
                     setText([56, 189, 248]);
                     pdf.setFont('helvetica', 'bold');
+                    pdf.setFontSize(EVENT_FONT);
                     pdf.text(String(e.country || '\u2014').slice(0, 4), evColX.country, evY + 2);
-                    // Stars
+                    // Impact dots (2 or 3 squares)
                     const stars = Math.max(0, Math.min(3, Number(e.impact || 0)));
                     if (stars > 0) {
-                        setText(AMBER);
-                        pdf.setFont('helvetica', 'bold');
-                        const starStr = '\u2605'.repeat(stars) + '\u2606'.repeat(3 - stars);
-                        pdf.text(starStr, evColX.stars, evY + 2);
+                        drawImpactDots(stars, evColX.stars, evY + 2);
                     }
                     // Date
                     setText(MUTED);
