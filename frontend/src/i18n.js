@@ -31,11 +31,11 @@ const STR = {
 
         // Landing
         'landing.kicker': 'Trader Intelligence',
-        'landing.title_a': 'Il posizionamento istituzionale,',
+        'landing.title_a': 'Posizionamento istituzionale,',
         'landing.title_b': 'in chiaro.',
         'landing.title_c': '',
         'landing.title_d': '',
-        'landing.subtitle': 'Settimana dopo settimana. 18 asset. Una dashboard.',
+        'landing.subtitle': 'Una sola vista sul posizionamento dei principali asset, aggiornata ad ogni rilascio CFTC.',
         'landing.stat1_v': '18',
         'landing.stat1_l': 'Asset coperti',
         'landing.stat2_v': '0-100',
@@ -398,7 +398,7 @@ const STR = {
         'landing.title_b': 'made clear.',
         'landing.title_c': '',
         'landing.title_d': '',
-        'landing.subtitle': 'Week after week. 18 assets. One dashboard.',
+        'landing.subtitle': 'A single view on the positioning of major assets, refreshed at every CFTC release.',
         'landing.stat1_v': '18',
         'landing.stat1_l': 'Assets covered',
         'landing.stat2_v': '0-100',

@@ -49,8 +49,9 @@ export default function LandingPage() {
 
     const onPrimaryCta = () => {
         if (!user) {
-            setAuthMode('register');
-            setShowAuth(true);
+            // Anonymous → straight to the dashboard (paywall is enforced there).
+            // Don't force a sign-up modal on the landing.
+            navigate('/dashboard');
         } else if (premium) {
             navigate('/dashboard');
         } else {
@@ -192,9 +193,8 @@ function Hero({ onCta, t, hasUser, premium }) {
                         transition={{ delay: 0.2, duration: 0.6 }}
                         className="font-display text-4xl sm:text-5xl lg:text-[68px] font-bold text-white tracking-tight leading-[1.05] mb-6"
                     >
-                        {t('landing.title_a')}{' '}
                         <span className="relative inline-block">
-                            <span className="text-amber-400">{t('landing.title_b')}</span>
+                            <span className="text-amber-400">{t('landing.title_a')}</span>
                             <motion.span
                                 className="absolute -inset-x-2 -bottom-1 h-[3px] bg-gradient-to-r from-transparent via-amber-400/80 to-transparent rounded-full"
                                 initial={{ scaleX: 0 }}
@@ -203,6 +203,8 @@ function Hero({ onCta, t, hasUser, premium }) {
                                 style={{ transformOrigin: 'left' }}
                             />
                         </span>
+                        {t('landing.title_b') ? ' ' : ''}
+                        <span className="text-white">{t('landing.title_b')}</span>
                     </motion.h1>
                     <motion.p
                         initial={{ opacity: 0, y: 8 }}
@@ -218,24 +220,11 @@ function Hero({ onCta, t, hasUser, premium }) {
                         initial={{ opacity: 0, y: 8 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ delay: 0.5, duration: 0.5 }}
-                        className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-9 max-w-xl"
+                        className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-9 max-w-2xl"
                         data-testid="landing-stats"
                     >
                         {stats.map((s, i) => (
-                            <motion.div
-                                key={s.l}
-                                initial={{ opacity: 0, y: 8 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                transition={{ delay: 0.55 + i * 0.06, duration: 0.4 }}
-                                className="rounded-2xl border border-white/[0.07] bg-white/[0.02] backdrop-blur-sm px-3 py-2.5"
-                            >
-                                <div className="font-mono text-[22px] font-bold text-amber-300 tnum leading-none">
-                                    {s.v}
-                                </div>
-                                <div className="mt-1 text-[10px] uppercase tracking-[0.18em] text-gray-500 font-semibold">
-                                    {s.l}
-                                </div>
-                            </motion.div>
+                            <StatCard key={s.l} value={s.v} label={s.l} index={i} />
                         ))}
                     </motion.div>
 
@@ -257,6 +246,65 @@ function Hero({ onCta, t, hasUser, premium }) {
                 </div>
             </motion.div>
         </section>
+    );
+}
+
+/* --------------------------- STAT CARD --------------------------- */
+function StatCard({ value, label, index }) {
+    // Animated count-up when the value is numeric (else display as-is).
+    const numericMatch = /^([\d.]+)([+]?)$/.exec(value);
+    const numeric = numericMatch ? parseFloat(numericMatch[1]) : null;
+    const suffix = numericMatch ? numericMatch[2] : '';
+    const [display, setDisplay] = React.useState(numeric != null ? '0' : value);
+
+    React.useEffect(() => {
+        if (numeric == null) return;
+        const dur = 1100;
+        const start = performance.now();
+        let raf;
+        const tick = (t) => {
+            const p = Math.min(1, (t - start) / dur);
+            // ease-out-cubic
+            const eased = 1 - Math.pow(1 - p, 3);
+            const v = numeric * eased;
+            setDisplay(numeric < 1 || !Number.isFinite(numeric) ? value : Math.round(v).toString());
+            if (p < 1) raf = requestAnimationFrame(tick);
+            else setDisplay(numeric.toString());
+        };
+        raf = requestAnimationFrame(tick);
+        return () => cancelAnimationFrame(raf);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [numeric]);
+
+    return (
+        <motion.div
+            initial={{ opacity: 0, y: 14 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.55 + index * 0.08, duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+            whileHover={{ y: -3, transition: { duration: 0.2 } }}
+            className="group relative overflow-hidden rounded-2xl border border-white/[0.08] bg-gradient-to-b from-white/[0.04] to-white/[0.01] backdrop-blur-md p-4 transition-colors hover:border-amber-500/40"
+        >
+            {/* Top accent line */}
+            <motion.div
+                className="absolute inset-x-3 top-0 h-[2px] bg-gradient-to-r from-transparent via-amber-400/70 to-transparent"
+                initial={{ scaleX: 0, opacity: 0 }}
+                animate={{ scaleX: 1, opacity: 1 }}
+                transition={{ delay: 0.75 + index * 0.08, duration: 0.6 }}
+                style={{ transformOrigin: 'left' }}
+            />
+            {/* Hover glow */}
+            <div className="pointer-events-none absolute -inset-6 bg-amber-500/[0.07] blur-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+
+            <div className="relative">
+                <div className="font-mono text-[26px] sm:text-[28px] font-bold tnum leading-none bg-gradient-to-b from-amber-200 via-amber-300 to-amber-500 bg-clip-text text-transparent">
+                    {display}
+                    {suffix}
+                </div>
+                <div className="mt-2 text-[10px] uppercase tracking-[0.2em] text-gray-500 font-bold">
+                    {label}
+                </div>
+            </div>
+        </motion.div>
     );
 }
 
