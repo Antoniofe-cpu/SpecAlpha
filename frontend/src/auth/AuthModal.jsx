@@ -2,9 +2,11 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Mail, Lock, User as UserIcon, Loader2 } from 'lucide-react';
 import { useAuth, formatApiError } from './AuthContext';
+import { useT } from '../i18n';
 
 export default function AuthModal({ open, onClose, initialMode = 'login' }) {
     const { login, register, loginWithGoogle } = useAuth();
+    const { t } = useT();
     const [mode, setMode] = useState(initialMode); // 'login' | 'register'
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
@@ -66,15 +68,13 @@ export default function AuthModal({ open, onClose, initialMode = 'login' }) {
                     </button>
 
                     <div className="text-[11px] tracking-[0.3em] uppercase font-bold text-amber-400 mb-1.5">
-                        {mode === 'login' ? 'Accedi' : 'Registrati'}
+                        {mode === 'login' ? t('auth.login_kicker') : t('auth.register_kicker')}
                     </div>
                     <h2 className="font-display text-2xl font-bold text-white mb-1">
-                        {mode === 'login' ? 'Bentornato' : 'Crea il tuo account'}
+                        {mode === 'login' ? t('auth.login_title') : t('auth.register_title')}
                     </h2>
                     <p className="text-[13px] text-gray-400 mb-5">
-                        {mode === 'login'
-                            ? 'Accedi per sbloccare il Confluence Index completo.'
-                            : '7 giorni di prova gratuita. Annulla quando vuoi.'}
+                        {mode === 'login' ? t('auth.login_subtitle') : t('auth.register_subtitle')}
                     </p>
 
                     <button
@@ -83,19 +83,19 @@ export default function AuthModal({ open, onClose, initialMode = 'login' }) {
                         onClick={loginWithGoogle}
                         className="w-full mb-4 px-4 py-3 rounded-2xl border border-white/15 bg-white text-black hover:bg-white/90 transition flex items-center justify-center gap-3 font-semibold text-[14px]"
                     >
-                        <GoogleIcon /> Continua con Google
+                        <GoogleIcon /> {t('auth.google_btn')}
                     </button>
 
                     <div className="flex items-center gap-3 mb-4 text-[11px] text-gray-500 uppercase tracking-[0.22em]">
-                        <span className="flex-1 h-px bg-white/10" /> oppure <span className="flex-1 h-px bg-white/10" />
+                        <span className="flex-1 h-px bg-white/10" /> {t('auth.or')} <span className="flex-1 h-px bg-white/10" />
                     </div>
 
                     <form onSubmit={submit} className="space-y-3">
                         {mode === 'register' && (
-                            <Field icon={UserIcon} type="text" placeholder="Nome" value={name} onChange={setName} testid="auth-name" />
+                            <Field icon={UserIcon} type="text" placeholder={t('auth.name_ph')} value={name} onChange={setName} testid="auth-name" />
                         )}
-                        <Field icon={Mail} type="email" placeholder="Email" value={email} onChange={setEmail} testid="auth-email" required />
-                        <Field icon={Lock} type="password" placeholder="Password (min 8)" value={password} onChange={setPassword} testid="auth-password" required />
+                        <Field icon={Mail} type="email" placeholder={t('auth.email_ph')} value={email} onChange={setEmail} testid="auth-email" required />
+                        <Field icon={Lock} type="password" placeholder={t('auth.password_ph')} value={password} onChange={setPassword} testid="auth-password" required />
 
                         {error && (
                             <div data-testid="auth-error" className="text-[12px] text-rose-300 bg-rose-500/10 border border-rose-500/20 rounded-xl px-3 py-2">
@@ -110,23 +110,23 @@ export default function AuthModal({ open, onClose, initialMode = 'login' }) {
                             className="w-full px-4 py-3 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black font-bold uppercase tracking-[0.18em] text-[12px] transition flex items-center justify-center gap-2 disabled:opacity-60"
                         >
                             {busy && <Loader2 size={14} className="animate-spin" />}
-                            {mode === 'login' ? 'Accedi' : 'Crea account'}
+                            {mode === 'login' ? t('auth.submit_login') : t('auth.submit_register')}
                         </button>
                     </form>
 
                     <div className="mt-5 text-center text-[12px] text-gray-400">
                         {mode === 'login' ? (
                             <>
-                                Non hai un account?{' '}
+                                {t('auth.switch_to_register_q')}{' '}
                                 <button data-testid="auth-switch-register" onClick={() => { setMode('register'); setError(''); }} className="text-amber-400 hover:underline font-semibold">
-                                    Registrati
+                                    {t('auth.switch_to_register_cta')}
                                 </button>
                             </>
                         ) : (
                             <>
-                                Hai già un account?{' '}
+                                {t('auth.switch_to_login_q')}{' '}
                                 <button data-testid="auth-switch-login" onClick={() => { setMode('login'); setError(''); }} className="text-amber-400 hover:underline font-semibold">
-                                    Accedi
+                                    {t('auth.switch_to_login_cta')}
                                 </button>
                             </>
                         )}
