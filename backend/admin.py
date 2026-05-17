@@ -229,8 +229,8 @@ def build_admin_router(db_getter, get_current_user) -> APIRouter:
         })
         conversion_pct = round((ever_paid / total_users * 100) if total_users else 0, 1)
 
-        # MRR estimate from active subs × price (assume $19.90 USD)
-        price_usd = float(19.90)
+        # MRR estimate from active subs × price (mixed EUR €19.90 / USD $24.99, baseline USD)
+        price_usd = float(24.99)
         mrr_usd = round(active_subs * price_usd, 2)
 
         # Revenue series — last 90d, counted via invoice.payment_succeeded stripe_events
