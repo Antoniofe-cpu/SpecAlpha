@@ -74,8 +74,17 @@ export function AuthProvider({ children }) {
             const { data } = await ax.get('/auth/me');
             setUser(data);
             return data;
-        } catch {
-            setUser(null);
+        } catch (err) {
+            // Only clear the user on an explicit auth failure (401/403). On
+            // network blips, 5xx (e.g. slow Stripe self-heal), or aborted
+            // requests, keep the previously known user so we don't bounce
+            // them out of authenticated pages.
+            const code = err?.response?.status;
+            if (code === 401 || code === 403) {
+                setUser(null);
+                return null;
+            }
+            console.warn('refreshMe transient failure (keeping cached user):', code || err?.message);
             return null;
         }
     }, []);

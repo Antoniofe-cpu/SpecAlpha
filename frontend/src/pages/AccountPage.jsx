@@ -35,9 +35,18 @@ export default function AccountPage() {
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState('');
 
-    // Redirect unauthenticated users to the landing.
+    // Redirect unauthenticated users to the landing. We only run this guard
+    // on the *initial* mount transition (loading=true → loading=false). Once
+    // we have ever seen a logged-in user we never auto-bounce them out, even
+    // if /me momentarily returns null due to a transient backend error.
+    const everHadUser = React.useRef(false);
+    useEffect(() => { if (user) everHadUser.current = true; }, [user]);
+    const bootChecked = React.useRef(false);
     useEffect(() => {
-        if (!loading && !user) navigate('/', { replace: true });
+        if (loading) return;
+        if (bootChecked.current) return;
+        bootChecked.current = true;
+        if (!user && !everHadUser.current) navigate('/', { replace: true });
     }, [loading, user, navigate]);
 
     // Pull the latest billing snapshot from Stripe (self-heal) once.

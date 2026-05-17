@@ -27,6 +27,7 @@ import os
 import uuid
 import secrets
 import logging
+import asyncio
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, List
 
@@ -414,11 +415,17 @@ def build_auth_router(db_getter, get_current_user) -> APIRouter:
     @router.get("/me")
     async def me(user: Dict[str, Any] = Depends(get_current_user)):
         # Self-heal subscription status from Stripe (cheap no-op when fresh).
-        # Catches missed webhooks (e.g. wrong endpoint after redeploy) and
-        # the moment right after a checkout when Stripe hasn't called us yet.
+        # Catches missed webhooks and the moment right after a checkout when
+        # Stripe hasn't called us yet. Wrapped in a tight timeout so a slow
+        # Stripe API never blocks the /me response.
         try:
             from billing import refresh_user_from_stripe_if_stale
-            user = await refresh_user_from_stripe_if_stale(db_getter(), user)
+            user = await asyncio.wait_for(
+                refresh_user_from_stripe_if_stale(db_getter(), user),
+                timeout=2.5,
+            )
+        except asyncio.TimeoutError:
+            logger.info("/me self-heal timed out — returning cached user state")
         except Exception as e:  # noqa: BLE001
             logger.warning("me self-heal failed: %s", e)
         return _public_user(user)
