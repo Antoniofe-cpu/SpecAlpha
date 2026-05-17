@@ -62,6 +62,38 @@ async def log_event(
         logger.warning("event log failed: %s", e)
 
 
+def _parse_range(
+    days: Optional[int],
+    from_iso: Optional[str],
+    to_iso: Optional[str],
+    default_days: int = 30,
+) -> tuple[datetime, datetime]:
+    """Resolve a (since, until) UTC range from either presets or explicit ISO dates.
+
+    Priority: explicit from/to > days preset > default_days.
+    """
+    now = datetime.now(timezone.utc)
+
+    def _parse(iso: Optional[str]) -> Optional[datetime]:
+        if not iso:
+            return None
+        try:
+            s = iso.replace("Z", "+00:00")
+            dt = datetime.fromisoformat(s)
+            return dt.astimezone(timezone.utc) if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+        except Exception:  # noqa: BLE001
+            return None
+
+    f = _parse(from_iso)
+    t = _parse(to_iso)
+    if f or t:
+        since = f or (now - timedelta(days=365 * 10))
+        until = t or now
+        return since, until
+    d = max(1, min(int(days or default_days), 365))
+    return now - timedelta(days=d), now
+
+
 async def ensure_admin_indexes(db: AsyncIOMotorDatabase) -> None:
     await db.events.create_index([("ts", -1)])
     await db.events.create_index("user_id")
@@ -162,18 +194,27 @@ def build_admin_router(db_getter, get_current_user) -> APIRouter:
 
     # ----- KPIs -----
     @router.get("/kpis")
-    async def kpis(_: Dict[str, Any] = Depends(admin_dep)):
+    async def kpis(
+        _: Dict[str, Any] = Depends(admin_dep),
+        days: Optional[int] = Query(None, ge=1, le=365),
+        from_iso: Optional[str] = Query(None, alias="from"),
+        to_iso: Optional[str] = Query(None, alias="to"),
+    ):
         db = db_getter()
         now = datetime.now(timezone.utc)
+        # Period the user picked (used for "new users" + "active users")
+        since, until = _parse_range(days, from_iso, to_iso, default_days=30)
+        # Keep the 7d slice for legacy widgets
         d7 = now - timedelta(days=7)
-        d30 = now - timedelta(days=30)
         d90 = now - timedelta(days=90)
 
         total_users = await db.users.count_documents({})
         users_7d = await db.users.count_documents({"created_at": {"$gte": d7}})
-        users_30d = await db.users.count_documents({"created_at": {"$gte": d30}})
+        users_period = await db.users.count_documents({"created_at": {"$gte": since, "$lte": until}})
         active_7d = len(await db.events.distinct("user_id", {"ts": {"$gte": d7}, "user_id": {"$ne": None}}))
-        active_30d = len(await db.events.distinct("user_id", {"ts": {"$gte": d30}, "user_id": {"$ne": None}}))
+        active_period = len(await db.events.distinct(
+            "user_id", {"ts": {"$gte": since, "$lte": until}, "user_id": {"$ne": None}}
+        ))
         trialing = await db.users.count_documents({"subscription_status": "trialing"})
         active_subs = await db.users.count_documents({"subscription_status": "active"})
         past_due = await db.users.count_documents({"subscription_status": "past_due"})
@@ -211,9 +252,9 @@ def build_admin_router(db_getter, get_current_user) -> APIRouter:
         return {
             "total_users": total_users,
             "new_users_7d": users_7d,
-            "new_users_30d": users_30d,
+            "new_users_30d": users_period,
             "active_7d": active_7d,
-            "active_30d": active_30d,
+            "active_30d": active_period,
             "trialing": trialing,
             "active_subs": active_subs,
             "past_due": past_due,
@@ -221,30 +262,39 @@ def build_admin_router(db_getter, get_current_user) -> APIRouter:
             "conversion_pct": conversion_pct,
             "mrr_usd": mrr_usd,
             "revenue_series_90d": series,
+            "period_from": since.isoformat(),
+            "period_to": until.isoformat(),
             "as_of": now.isoformat(),
         }
 
     # ----- Funnel -----
     @router.get("/funnel")
-    async def funnel(_: Dict[str, Any] = Depends(admin_dep), days: int = Query(30, ge=1, le=365)):
+    async def funnel(
+        _: Dict[str, Any] = Depends(admin_dep),
+        days: Optional[int] = Query(None, ge=1, le=365),
+        from_iso: Optional[str] = Query(None, alias="from"),
+        to_iso: Optional[str] = Query(None, alias="to"),
+    ):
         db = db_getter()
-        since = datetime.now(timezone.utc) - timedelta(days=days)
+        since, until = _parse_range(days, from_iso, to_iso, default_days=30)
+        ts_filter = {"$gte": since, "$lte": until}
         # Use distinct user/IP buckets per step. For anonymous we fall back to IP.
-        anon_visits = len(await db.events.distinct("ip", {"ts": {"$gte": since}, "type": "page_view"}))
-        registered = await db.users.count_documents({"created_at": {"$gte": since}})
+        anon_visits = len(await db.events.distinct("ip", {"ts": ts_filter, "type": "page_view"}))
+        registered = await db.users.count_documents({"created_at": ts_filter})
         activated = len(await db.events.distinct(
-            "user_id", {"ts": {"$gte": since}, "type": "asset_view", "user_id": {"$ne": None}}
+            "user_id", {"ts": ts_filter, "type": "asset_view", "user_id": {"$ne": None}}
         ))
         trialing_or_paid = await db.users.count_documents({
-            "created_at": {"$gte": since},
+            "created_at": ts_filter,
             "subscription_status": {"$in": ["trialing", "active"]},
         })
         paid = await db.users.count_documents({
-            "created_at": {"$gte": since},
+            "created_at": ts_filter,
             "subscription_status": {"$in": ["active", "past_due", "canceled"]},
         })
         return {
-            "days": days,
+            "from": since.isoformat(),
+            "to": until.isoformat(),
             "steps": [
                 {"key": "visit", "label": "Visite anonime", "count": anon_visits},
                 {"key": "register", "label": "Registrazioni", "count": registered},
@@ -261,6 +311,9 @@ def build_admin_router(db_getter, get_current_user) -> APIRouter:
         limit: int = Query(100, ge=1, le=500),
         type: Optional[str] = Query(None),
         user_id: Optional[str] = Query(None),
+        days: Optional[int] = Query(None, ge=1, le=365),
+        from_iso: Optional[str] = Query(None, alias="from"),
+        to_iso: Optional[str] = Query(None, alias="to"),
     ):
         db = db_getter()
         q: Dict[str, Any] = {}
@@ -268,6 +321,10 @@ def build_admin_router(db_getter, get_current_user) -> APIRouter:
             q["type"] = type
         if user_id:
             q["user_id"] = user_id
+        # Apply period filter only if user passed one explicitly.
+        if days or from_iso or to_iso:
+            since, until = _parse_range(days, from_iso, to_iso, default_days=30)
+            q["ts"] = {"$gte": since, "$lte": until}
         out: List[Dict[str, Any]] = []
         cursor = db.events.find(q, {"_id": 0}).sort("ts", -1).limit(limit)
         async for ev in cursor:
@@ -275,13 +332,43 @@ def build_admin_router(db_getter, get_current_user) -> APIRouter:
             out.append(ev)
         return {"events": out}
 
+    # ----- Bulk delete events (purge) -----
+    @router.delete("/events")
+    async def delete_events(
+        _: Dict[str, Any] = Depends(admin_dep),
+        type: Optional[str] = Query(None),
+        days: Optional[int] = Query(None, ge=1, le=3650),
+        from_iso: Optional[str] = Query(None, alias="from"),
+        to_iso: Optional[str] = Query(None, alias="to"),
+        all_: bool = Query(False, alias="all"),
+    ):
+        db = db_getter()
+        q: Dict[str, Any] = {}
+        if type:
+            q["type"] = type
+        if days or from_iso or to_iso:
+            since, until = _parse_range(days, from_iso, to_iso, default_days=30)
+            q["ts"] = {"$gte": since, "$lte": until}
+        elif not all_:
+            raise HTTPException(
+                status_code=400,
+                detail="Specify at least one filter (type, days, from/to) or all=true",
+            )
+        res = await db.events.delete_many(q)
+        return {"ok": True, "deleted": res.deleted_count}
+
     # ----- Top assets viewed -----
     @router.get("/top-assets")
-    async def top_assets(_: Dict[str, Any] = Depends(admin_dep), days: int = Query(30, ge=1, le=365)):
+    async def top_assets(
+        _: Dict[str, Any] = Depends(admin_dep),
+        days: Optional[int] = Query(None, ge=1, le=365),
+        from_iso: Optional[str] = Query(None, alias="from"),
+        to_iso: Optional[str] = Query(None, alias="to"),
+    ):
         db = db_getter()
-        since = datetime.now(timezone.utc) - timedelta(days=days)
+        since, until = _parse_range(days, from_iso, to_iso, default_days=30)
         pipeline = [
-            {"$match": {"type": "asset_view", "ts": {"$gte": since}}},
+            {"$match": {"type": "asset_view", "ts": {"$gte": since, "$lte": until}}},
             {"$group": {"_id": "$meta.assetId", "count": {"$sum": 1}}},
             {"$sort": {"count": -1}},
             {"$limit": 25},

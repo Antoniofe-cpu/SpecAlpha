@@ -240,6 +240,10 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
             pdf.setFont('helvetica', 'bold');
             pdf.setFontSize(8);
             pdf.text('SPECULATIVE ALPHA', M, 9);
+            setText(MUTED);
+            pdf.setFont('helvetica', 'normal');
+            pdf.setFontSize(6.8);
+            pdf.text('INSTITUTIONAL COT INTELLIGENCE', M + 36, 9);
 
             setText(TEXT);
             pdf.setFont('helvetica', 'bold');
@@ -257,6 +261,13 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
             pdf.setFontSize(8);
             setText(MUTED);
             pdf.text(`${t('pdf.generated')}: ${stamp}`, W - M, 9, { align: 'right' });
+            // Asset CI mini-chip in top-right of header for quick scan
+            const headerCI = Number(snapshot.confluenceIndex ?? 0);
+            const headerCIColor = headerCI >= 70 ? AMBER : headerCI >= 40 ? [56, 189, 248] : [167, 139, 250];
+            setText(headerCIColor);
+            pdf.setFont('helvetica', 'bold');
+            pdf.setFontSize(11);
+            pdf.text(`CI ${headerCI.toFixed(0)}`, W - M, 22, { align: 'right' });
 
             y = 38;
 
@@ -326,6 +337,102 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
 
             y += topPanelH + 6;
 
+            // ---------- Confluence Index Hero (full width) ----------
+            const ci = Number(snapshot.confluenceIndex ?? 0);
+            const ciDir = String(snapshot.confluenceDirection || 'neutral').toUpperCase();
+            const components = snapshot.confluenceComponents || {};
+            const missingStreams = snapshot.confluenceMissing || [];
+            const ciTier = ci >= 70 ? 'high' : ci >= 40 ? 'mid' : 'low';
+            const ciColor = ciTier === 'high' ? AMBER : ciTier === 'mid' ? [56, 189, 248] : [167, 139, 250];
+            const ciDirColor = ciDir === 'LONG' ? GREEN : ciDir === 'SHORT' ? RED : MUTED;
+            const ciH = 48;
+            ensurePage(ciH + 8);
+            panel(M, y, W - M * 2, ciH);
+            // Label
+            setText(MUTED);
+            pdf.setFont('helvetica', 'bold');
+            pdf.setFontSize(7.5);
+            pdf.text('CONFLUENCE INDEX', M + 5, y + 6);
+
+            // Big score on the left
+            setText(ciColor);
+            pdf.setFont('helvetica', 'bold');
+            pdf.setFontSize(34);
+            pdf.text(`${ci.toFixed(0)}`, M + 5, y + 28);
+            setText(MUTED);
+            pdf.setFont('helvetica', 'normal');
+            pdf.setFontSize(7);
+            pdf.text('/ 100', M + 5 + (ci >= 10 ? 22 : 14), y + 28);
+            // Tier label
+            setText(MUTED);
+            pdf.setFont('helvetica', 'bold');
+            pdf.setFontSize(7);
+            pdf.text(
+                ciTier === 'high' ? 'ALTA CONFLUENZA' : ciTier === 'mid' ? 'CONFLUENZA MEDIA' : 'BASSA CONFLUENZA',
+                M + 5, y + 34
+            );
+            // Direction pill at right of score
+            const dirX = M + 50;
+            setFill(ciDir === 'LONG' ? [10, 36, 24] : ciDir === 'SHORT' ? [42, 14, 22] : [22, 22, 30]);
+            setDraw(ciDirColor);
+            pdf.setLineWidth(0.2);
+            pdf.roundedRect(dirX, y + 18, 26, 9, 2, 2, 'FD');
+            setText(ciDirColor);
+            pdf.setFont('helvetica', 'bold');
+            pdf.setFontSize(10);
+            pdf.text(ciDir, dirX + 13, y + 24.5, { align: 'center' });
+
+            // 3 stream alignment bars on the right side
+            const barsX = M + 90;
+            const barsW = W - M - barsX - 5;
+            const streams = [
+                { key: 'nonComm', label: 'NON-COMMERCIAL', v: Number(components.nonComm || 0) },
+                { key: 'options', label: 'OPTIONS', v: Number(components.options || 0) },
+                { key: 'comm', label: 'COMMERCIAL', v: Number(components.comm || 0) },
+            ];
+            streams.forEach((s, i) => {
+                const sy = y + 9 + i * 11;
+                const isMissing = missingStreams.includes(s.key);
+                // Label
+                setText(MUTED);
+                pdf.setFont('helvetica', 'bold');
+                pdf.setFontSize(6.8);
+                pdf.text(s.label, barsX, sy);
+                // Track
+                setFill([22, 22, 30]);
+                setDraw(BORDER);
+                pdf.setLineWidth(0.1);
+                pdf.roundedRect(barsX, sy + 1.5, barsW, 4.5, 1.2, 1.2, 'FD');
+                // Center line
+                setDraw([90, 90, 110]);
+                pdf.setLineWidth(0.15);
+                pdf.line(barsX + barsW / 2, sy + 1.5, barsX + barsW / 2, sy + 6);
+                // Bar fill
+                if (!isMissing) {
+                    const v = Math.max(-1, Math.min(1, s.v));
+                    const half = barsW / 2;
+                    const fillW = Math.abs(v) * half;
+                    const fillX = v >= 0 ? barsX + half : barsX + half - fillW;
+                    setFill(v >= 0 ? GREEN : RED);
+                    pdf.rect(fillX, sy + 1.7, fillW, 4.1, 'F');
+                    // Value
+                    setText(TEXT);
+                    pdf.setFont('helvetica', 'normal');
+                    pdf.setFontSize(6.5);
+                    pdf.text(
+                        (v >= 0 ? '+' : '') + v.toFixed(2),
+                        barsX + barsW, sy, { align: 'right' }
+                    );
+                } else {
+                    setText(MUTED);
+                    pdf.setFont('helvetica', 'italic');
+                    pdf.setFontSize(6.2);
+                    pdf.text('n/d', barsX + barsW, sy, { align: 'right' });
+                }
+            });
+
+            y += ciH + 6;
+
             // ---------- Macro Sentiment (full width, dynamic height incl. events) ----------
             const eventsList = (macro?.events || []).slice(0, 5);
             const summaryText = macro?.summary || t('modal.macro_loading');
@@ -345,7 +452,7 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
             pdf.setFontSize(8.5);
             pdf.text(summaryLines, M + 4, y + 12, { lineHeightFactor: 1.35 });
 
-            // Render up to 5 macro events (country · date · event · prev)
+            // Render up to 5 macro events (country · stars · date · event · prev)
             if (eventsList.length > 0) {
                 let evY = y + 14 + summaryRowH;
                 setDraw(BORDER);
@@ -357,14 +464,22 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                     setText([56, 189, 248]);
                     pdf.setFont('helvetica', 'bold');
                     pdf.text(String(e.country || '—').slice(0, 4), M + 4, evY + 2);
+                    // Stars based on impact (2 or 3)
+                    const stars = Math.max(0, Math.min(3, Number(e.impact || 0)));
+                    if (stars > 0) {
+                        setText(AMBER);
+                        pdf.setFont('helvetica', 'bold');
+                        const starStr = '\u2605'.repeat(stars) + '\u2606'.repeat(3 - stars);
+                        pdf.text(starStr, M + 14, evY + 2);
+                    }
                     setText(MUTED);
                     pdf.setFont('helvetica', 'normal');
-                    pdf.text(String(e.date || ''), M + 16, evY + 2);
+                    pdf.text(String(e.date || ''), M + 25, evY + 2);
                     setText(TEXT);
                     const evLabel = String(e.event || '');
-                    const evMaxW = W - M * 2 - 8 - 50;
+                    const evMaxW = W - M * 2 - 8 - 60;
                     const evClipped = pdf.splitTextToSize(evLabel, evMaxW)[0] || '';
-                    pdf.text(evClipped, M + 38, evY + 2);
+                    pdf.text(evClipped, M + 48, evY + 2);
                     if (e.previous) {
                         setText(MUTED);
                         pdf.text(`prev ${e.previous}`, W - M - 6, evY + 2, { align: 'right' });

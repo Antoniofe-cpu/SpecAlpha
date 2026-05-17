@@ -395,8 +395,8 @@ const STR = {
 
         // Landing
         'landing.kicker': 'Trader Intelligence',
-        'landing.title_a': 'The report that moves the',
-        'landing.title_b': 'markets.',
+        'landing.title_a': 'The report that moves',
+        'landing.title_b': 'the markets.',
         'landing.title_c': '',
         'landing.title_d': '',
         'landing.subtitle': 'Positions filed with the CFTC, in a single view.',

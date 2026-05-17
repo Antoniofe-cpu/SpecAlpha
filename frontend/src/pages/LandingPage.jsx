@@ -202,6 +202,7 @@ function Hero({ onCta, t, hasUser, premium }) {
                         <motion.span
                             className="text-amber-400 inline"
                             style={{
+                                whiteSpace: 'nowrap',
                                 backgroundImage:
                                     'linear-gradient(transparent calc(100% - 4px), rgba(251,191,36,0.85) 4px)',
                                 backgroundRepeat: 'no-repeat',

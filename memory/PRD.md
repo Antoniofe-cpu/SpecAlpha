@@ -42,6 +42,12 @@ Financial dashboard ("Speculative Alpha") computing a 0–100 **Confluence Index
 - Formula: `100 × alignment × (0.5 + 0.5 × magnitudeAvg)`
 - Validato su 7 asset core: SP500/NAS100 → 70-75 short allineati, GOLD → 40 long, OIL → 38 neutral
 
+### Phase 7 — UI polish + Admin period filter + PDF v2 ✅ DONE (2026-02-17)
+- **Landing**: hero title con `white-space: nowrap` (no più lettere orfane "i mercati."), 4 pillar card (COT Report, Opzioni, Indici/commodities/forex, Confluence Index).
+- **Dashboard header**: rimosso pulsante Refresh (cache già batched), Guida diventa solo icona.
+- **Admin**: filtro periodo (preset 7/30/90gg + custom date range) propagato a `kpis`, `funnel`, `events`, `top-assets`; nuovo endpoint `DELETE /api/admin/events` per purge eventi nel range; icona Trash2 in header.
+- **PDF v2 (export per-asset)**: aggiunto **Confluence Index hero** con score 0-100 colorato per tier + direction pill + 3 stream alignment bars (Non-Comm/Options/Commercial); macro events con ★ rating (2/3 stelle); chip CI in header.
+
 ### Backlog (P1 → P2)
 - **P1** Reset-password email reale (Resend o SendGrid)
 - **P1** User menu dropdown completo (profilo, billing, lingua, logout)
@@ -87,10 +93,11 @@ Financial dashboard ("Speculative Alpha") computing a 0–100 **Confluence Index
 | `POST /api/billing/portal` | cookie | returns Stripe Customer Portal URL |
 | `GET  /api/billing/status` | cookie | live subscription status (Stripe roundtrip) |
 | `POST /api/billing/webhook` | Stripe-Signature | LIVE webhook |
-| `GET  /api/admin/kpis|funnel|events|top-assets|users` | admin cookie | analytics |
+| `GET  /api/admin/kpis|funnel|events|top-assets|users` | admin cookie | analytics, supportano `days`/`from`/`to` |
 | `POST /api/admin/track` | optional cookie | event ingestion (also from frontend) |
 | `POST /api/admin/users/{id}/extend-trial|role` | admin cookie | management |
 | `DELETE /api/admin/users/{id}` | admin cookie | hard delete + events wipe |
+| `DELETE /api/admin/events` | admin cookie | purge eventi per `type`/`days`/`from-to` (richiede almeno un filtro o `all=true`) |
 
 ## Stripe Configuration (LIVE)
 - Payment Link: `https://buy.stripe.com/6oUdR9an4cLA3lA83e73G00`

@@ -14,10 +14,18 @@ import {
     Clock,
     BarChart3,
     Loader2,
+    Calendar,
 } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { adminApi } from './api';
 import { cn } from '../utils';
+
+const PRESETS = [
+    { key: '7d', label: '7 giorni' },
+    { key: '30d', label: '30 giorni' },
+    { key: '90d', label: '90 giorni' },
+    { key: 'custom', label: 'Custom' },
+];
 
 export default function AdminPanel() {
     const { user, loading: authLoading } = useAuth();
@@ -85,15 +93,16 @@ function AdminContent() {
     const [topAssets, setTopAssets] = useState([]);
     const [refreshing, setRefreshing] = useState(false);
     const [tab, setTab] = useState('overview');
+    const [period, setPeriod] = useState({ preset: '30d', from: '', to: '' });
 
     const load = async () => {
         setRefreshing(true);
         try {
             const [k, f, e, ta] = await Promise.all([
-                adminApi.kpis(),
-                adminApi.funnel(30),
-                adminApi.events({ limit: 100 }),
-                adminApi.topAssets(30),
+                adminApi.kpis(period),
+                adminApi.funnel(period),
+                adminApi.events({ limit: 100 }, period),
+                adminApi.topAssets(period),
             ]);
             setKpis(k);
             setFunnel(f);
@@ -110,7 +119,22 @@ function AdminContent() {
         load();
         const id = setInterval(load, 30000); // auto-refresh every 30s
         return () => clearInterval(id);
-    }, []);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [period.preset, period.from, period.to]);
+
+    const onDeleteEvents = async () => {
+        const label = period.preset === 'custom'
+            ? `${period.from || '∞'} → ${period.to || 'oggi'}`
+            : PRESETS.find((p) => p.key === period.preset)?.label || period.preset;
+        if (!window.confirm(`Eliminare TUTTI gli eventi nel periodo selezionato (${label})? L'azione non è reversibile.`)) return;
+        try {
+            await adminApi.deleteEvents({ period });
+            await load();
+        } catch (err) {
+            console.error('delete events failed', err);
+            window.alert("Errore durante l'eliminazione degli eventi.");
+        }
+    };
 
     return (
         <div className="min-h-screen bg-[#050505] text-gray-200 grain">
@@ -132,15 +156,30 @@ function AdminContent() {
                             <h1 className="font-display text-xl font-bold text-white">Pannello di controllo</h1>
                         </div>
                     </div>
-                    <button
-                        data-testid="admin-refresh-btn"
-                        onClick={load}
-                        disabled={refreshing}
-                        className="px-4 py-2.5 rounded-2xl bg-white/[0.06] hover:bg-amber-500/15 hover:border-amber-500/40 border border-white/10 text-[12px] font-semibold uppercase tracking-[0.18em] flex items-center gap-2 disabled:opacity-60"
-                    >
-                        <RefreshCw size={14} className={cn(refreshing && 'animate-spin')} />
-                        Aggiorna
-                    </button>
+                    <div className="flex items-center gap-2">
+                        <button
+                            data-testid="admin-delete-events-btn"
+                            onClick={onDeleteEvents}
+                            title="Elimina gli eventi nel periodo selezionato"
+                            className="p-2.5 rounded-2xl bg-white/[0.06] hover:bg-rose-500/15 hover:border-rose-500/40 border border-white/10 text-rose-300 transition-colors"
+                        >
+                            <Trash2 size={14} />
+                        </button>
+                        <button
+                            data-testid="admin-refresh-btn"
+                            onClick={load}
+                            disabled={refreshing}
+                            title="Aggiorna i dati"
+                            className="p-2.5 rounded-2xl bg-white/[0.06] hover:bg-amber-500/15 hover:border-amber-500/40 border border-white/10 text-gray-300 disabled:opacity-60"
+                        >
+                            <RefreshCw size={14} className={cn(refreshing && 'animate-spin')} />
+                        </button>
+                    </div>
+                </div>
+
+                {/* Period filter */}
+                <div className="max-w-7xl mx-auto px-6 sm:px-8 pb-3">
+                    <PeriodFilter period={period} onChange={setPeriod} />
                 </div>
 
                 {/* Tab nav */}
@@ -169,24 +208,82 @@ function AdminContent() {
 
             <main className="max-w-7xl mx-auto px-6 sm:px-8 py-8 space-y-8">
                 {tab === 'overview' && (
-                    <OverviewTab kpis={kpis} funnel={funnel} topAssets={topAssets} />
+                    <OverviewTab kpis={kpis} funnel={funnel} topAssets={topAssets} period={period} />
                 )}
                 {tab === 'users' && <UsersTab />}
-                {tab === 'events' && <EventsTab events={events} />}
+                {tab === 'events' && <EventsTab events={events} onDeleteEvents={onDeleteEvents} />}
             </main>
         </div>
     );
 }
 
+/* --------------------------------- PERIOD FILTER --------------------------------- */
+function PeriodFilter({ period, onChange }) {
+    const setPreset = (preset) => {
+        if (preset === 'custom') {
+            onChange({ preset, from: period.from || '', to: period.to || '' });
+        } else {
+            onChange({ preset, from: '', to: '' });
+        }
+    };
+    return (
+        <div data-testid="admin-period-filter" className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.22em] font-bold text-gray-500 mr-2">
+                <Calendar size={12} className="text-amber-400" />
+                Periodo
+            </div>
+            {PRESETS.map((p) => (
+                <button
+                    key={p.key}
+                    data-testid={`admin-period-${p.key}`}
+                    onClick={() => setPreset(p.key)}
+                    className={cn(
+                        'px-3 py-1.5 rounded-xl text-[11px] font-bold uppercase tracking-[0.18em] transition-colors',
+                        period.preset === p.key
+                            ? 'bg-amber-500 text-black'
+                            : 'bg-white/[0.05] text-gray-300 hover:text-white border border-white/10'
+                    )}
+                >
+                    {p.label}
+                </button>
+            ))}
+            {period.preset === 'custom' && (
+                <div className="flex items-center gap-2 ml-1">
+                    <input
+                        type="date"
+                        data-testid="admin-period-from"
+                        value={period.from || ''}
+                        onChange={(e) => onChange({ ...period, from: e.target.value })}
+                        className="bg-[#0b0b10] border border-white/10 rounded-xl px-2.5 py-1.5 text-[11px] text-white font-mono"
+                    />
+                    <span className="text-gray-500 text-[11px]">→</span>
+                    <input
+                        type="date"
+                        data-testid="admin-period-to"
+                        value={period.to || ''}
+                        onChange={(e) => onChange({ ...period, to: e.target.value })}
+                        className="bg-[#0b0b10] border border-white/10 rounded-xl px-2.5 py-1.5 text-[11px] text-white font-mono"
+                    />
+                </div>
+            )}
+        </div>
+    );
+}
+
 /* --------------------------------- OVERVIEW --------------------------------- */
-function OverviewTab({ kpis, funnel, topAssets }) {
+function OverviewTab({ kpis, funnel, topAssets, period }) {
     if (!kpis) return <CenteredLoading label="Carico le metriche…" />;
+
+    const periodLabel = period?.preset === 'custom'
+        ? 'periodo'
+        : (PRESETS.find((p) => p.key === period?.preset)?.label || '30 giorni');
 
     const kpiCards = [
         { label: 'Utenti totali', value: kpis.total_users, icon: Users, accent: 'text-white' },
         { label: 'Nuovi 7gg', value: kpis.new_users_7d, icon: UserPlus, accent: 'text-emerald-300' },
+        { label: `Nuovi ${periodLabel}`, value: kpis.new_users_30d, icon: UserPlus, accent: 'text-emerald-200' },
         { label: 'Attivi 7gg', value: kpis.active_7d, icon: Activity, accent: 'text-amber-300' },
-        { label: 'Attivi 30gg', value: kpis.active_30d, icon: Activity, accent: 'text-amber-200' },
+        { label: `Attivi ${periodLabel}`, value: kpis.active_30d, icon: Activity, accent: 'text-amber-200' },
         { label: 'In Trial', value: kpis.trialing, icon: Clock, accent: 'text-sky-300' },
         { label: 'Sottoscrizioni attive', value: kpis.active_subs, icon: TrendingUp, accent: 'text-emerald-300' },
         { label: 'Past due', value: kpis.past_due, icon: TrendingUp, accent: 'text-rose-300' },
@@ -217,12 +314,12 @@ function OverviewTab({ kpis, funnel, topAssets }) {
                 </div>
             </Section>
 
-            <Section title="Funnel — ultimi 30 giorni">
+            <Section title={`Funnel — ${period?.preset === 'custom' ? 'periodo custom' : (PRESETS.find((p) => p.key === period?.preset)?.label || '30 giorni')}`}>
                 <FunnelChart funnel={funnel} />
             </Section>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <Section title="Asset più visti (30gg)">
+                <Section title={`Asset più visti (${periodLabel})`}>
                     <TopAssetsBars items={topAssets} />
                 </Section>
                 <Section title="Pagamenti — ultimi 90gg">

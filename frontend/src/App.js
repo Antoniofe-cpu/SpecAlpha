@@ -30,7 +30,7 @@ import AuthModal from './auth/AuthModal';
 import { useAuth, isPremium } from './auth/AuthContext';
 import { startCheckout, openBillingPortal } from './billing/api';
 import { track } from './admin/api';
-import { fetchAssets, fetchBulk, refreshCache } from './api';
+import { fetchAssets, fetchBulk } from './api';
 import { cn, nextSaturdayUTC } from './utils';
 import { useT } from './i18n';
 
@@ -300,18 +300,6 @@ export default function App() {
         });
     };
 
-    const handleRefresh = async () => {
-        try {
-            setRefreshing(true);
-            await refreshCache();
-            await loadData(scope, true);
-        } catch (e) {
-            console.error(e);
-        } finally {
-            setRefreshing(false);
-        }
-    };
-
     const openAuth = (mode = 'register') => {
         setAuthMode(mode);
         setShowAuth(true);
@@ -376,21 +364,13 @@ export default function App() {
                             <CountdownLabel />
                         </div>
                         <button
-                            data-testid="refresh-btn"
-                            onClick={handleRefresh}
-                            disabled={refreshing}
-                            className="p-2.5 sm:px-4 sm:py-2.5 rounded-2xl bg-white/[0.06] hover:bg-amber-500/15 hover:border-amber-500/40 border border-white/10 text-[13px] font-semibold uppercase tracking-[0.18em] flex items-center gap-2 transition-colors"
-                        >
-                            <RefreshCw size={15} className={cn(refreshing && 'animate-spin')} />
-                            <span className="hidden sm:inline">{t('app.refresh')}</span>
-                        </button>
-                        <button
                             data-testid="help-btn"
                             onClick={() => setShowHelp(true)}
-                            className="p-2.5 sm:px-4 sm:py-2.5 rounded-2xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 text-[13px] font-semibold uppercase tracking-[0.18em] flex items-center gap-2 transition-colors"
+                            title={t('app.guide')}
+                            aria-label={t('app.guide')}
+                            className="p-2.5 rounded-2xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 text-gray-300 transition-colors"
                         >
                             <HelpCircle size={15} />
-                            <span className="hidden sm:inline">{t('app.guide')}</span>
                         </button>
                         {user ? (
                             <div className="flex items-center gap-2">
