@@ -106,7 +106,7 @@ export default function AssetCard({ asset, isLoading, isFavorite, onClick, onTog
                         className="px-6 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black font-bold uppercase tracking-[0.22em] text-[12px] transition"
                         data-testid={`paywall-unlock-btn-${asset.assetId}`}
                     >
-                        Sblocca
+                        {t('common.unlock')}
                     </button>
                 </div>
             )}

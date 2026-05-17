@@ -177,7 +177,7 @@ export default function ConfluenceOpportunities({ assets, locked, onUnlock, onPi
                             className="px-6 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black font-bold uppercase tracking-[0.22em] text-[12px] transition"
                             data-testid="opportunities-unlock-btn"
                         >
-                            Sblocca
+                            {t('common.unlock')}
                         </button>
                     </div>
                 )}

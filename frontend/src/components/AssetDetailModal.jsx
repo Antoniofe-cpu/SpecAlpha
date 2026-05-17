@@ -46,6 +46,7 @@ import SentimentGauge from './SentimentGauge';
  * children inside this component get the blur + overlay treatment.
  */
 function LockedContent({ locked, onUnlock, children, minHeight = 80 }) {
+    const { t } = useT();
     if (!locked) return children;
     return (
         <div className="relative" data-testid="modal-locked-section" style={{ minHeight }}>
@@ -62,7 +63,7 @@ function LockedContent({ locked, onUnlock, children, minHeight = 80 }) {
                     data-testid="modal-unlock-btn"
                     className="px-4 py-2 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black font-bold uppercase tracking-[0.22em] text-[11px] transition"
                 >
-                    Sblocca
+                    {t('common.unlock')}
                 </button>
             </div>
         </div>
@@ -955,12 +956,20 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                         <div className="flex items-center gap-2">
                             <button
                                 data-testid="modal-export-btn"
-                                onClick={handleExport}
+                                onClick={locked ? onUnlock : handleExport}
                                 disabled={exporting}
-                                className="px-4 py-2.5 text-[12px] font-semibold uppercase tracking-[0.18em] bg-white/[0.06] hover:bg-amber-500/15 hover:border-amber-500/40 border border-white/10 rounded-2xl flex items-center gap-2 transition-colors disabled:opacity-50"
+                                title={locked ? t('common.unlock') : undefined}
+                                className={cn(
+                                    'px-4 py-2.5 text-[12px] font-semibold uppercase tracking-[0.18em] border rounded-2xl flex items-center gap-2 transition-colors disabled:opacity-50',
+                                    locked
+                                        ? 'bg-white/[0.04] border-white/10 text-gray-400 hover:bg-amber-500/15 hover:border-amber-500/40 hover:text-amber-200'
+                                        : 'bg-white/[0.06] border-white/10 hover:bg-amber-500/15 hover:border-amber-500/40'
+                                )}
                             >
                                 {exporting ? (
                                     <RefreshCw size={14} className="animate-spin" />
+                                ) : locked ? (
+                                    <Lock size={14} className="text-amber-300" />
                                 ) : (
                                     <Download size={14} />
                                 )}

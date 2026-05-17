@@ -67,6 +67,7 @@ function CountdownLabel() {
 }
 
 function LockableSection({ locked, onUnlock, children }) {
+    const { t } = useT();
     if (!locked) return children;
     return (
         <div className="relative">
@@ -81,7 +82,7 @@ function LockableSection({ locked, onUnlock, children }) {
                     className="px-6 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black font-bold uppercase tracking-[0.22em] text-[12px] transition"
                     data-testid="section-unlock-btn"
                 >
-                    Sblocca
+                    {t('common.unlock')}
                 </button>
             </div>
         </div>
