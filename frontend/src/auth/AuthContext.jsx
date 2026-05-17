@@ -28,6 +28,33 @@ export function formatApiError(detail) {
     return String(detail);
 }
 
+/** Whether the user has access to premium-only content (paid or trialing). */
+export function isPremium(user) {
+    if (!user) return false;
+    if (user.role === 'admin') return true;
+    const status = user.subscription_status;
+    if (status === 'active') return true;
+    if (status === 'trialing') {
+        const t = user.trial_ends_at ? new Date(user.trial_ends_at).getTime() : 0;
+        return t > Date.now();
+    }
+    return false;
+}
+
+/** Redirect the freshly authenticated user to Stripe Checkout when not premium. */
+async function routeAfterAuth(user) {
+    if (isPremium(user)) return; // already paid / trialing → stay where you are
+    try {
+        const { data } = await ax.post('/billing/checkout', { origin_url: window.location.origin });
+        if (data?.url) {
+            window.location.href = data.url;
+        }
+    } catch (e) {
+        // If checkout creation fails, do nothing — caller already saw success.
+        console.warn('post-auth checkout redirect failed', e);
+    }
+}
+
 export function AuthProvider({ children }) {
     const [user, setUser] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -57,6 +84,8 @@ export function AuthProvider({ children }) {
                         // Strip fragment from URL
                         const cleanUrl = window.location.pathname + window.location.search;
                         window.history.replaceState({}, document.title, cleanUrl);
+                        // After Google login, route to Stripe if not premium
+                        if (!cancelled) routeAfterAuth(data);
                     } catch (e) {
                         console.warn('OAuth session exchange failed', e);
                     }
@@ -76,12 +105,14 @@ export function AuthProvider({ children }) {
     const login = useCallback(async (email, password) => {
         const { data } = await ax.post('/auth/login', { email, password });
         setUser(data);
+        await routeAfterAuth(data);
         return data;
     }, []);
 
     const register = useCallback(async (email, password, name) => {
         const { data } = await ax.post('/auth/register', { email, password, name });
         setUser(data);
+        await routeAfterAuth(data);
         return data;
     }, []);
 
@@ -117,17 +148,4 @@ export function AuthProvider({ children }) {
 
 export function useAuth() {
     return useContext(AuthCtx);
-}
-
-/** Whether the user has access to premium-only content (paid or trialing). */
-export function isPremium(user) {
-    if (!user) return false;
-    if (user.role === 'admin') return true;
-    const status = user.subscription_status;
-    if (status === 'active') return true;
-    if (status === 'trialing') {
-        const t = user.trial_ends_at ? new Date(user.trial_ends_at).getTime() : 0;
-        return t > Date.now();
-    }
-    return false;
 }

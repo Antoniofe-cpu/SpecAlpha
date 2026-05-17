@@ -25,6 +25,7 @@ import HelpModal from './components/HelpModal';
 import HeatmapStrip from './components/HeatmapStrip';
 import CurrencyStrengthIndex from './components/CurrencyStrengthIndex';
 import ConfluenceOpportunities from './components/ConfluenceOpportunities';
+import Logo from './components/Logo';
 import AuthModal from './auth/AuthModal';
 import { useAuth, isPremium } from './auth/AuthContext';
 import { startCheckout, openBillingPortal } from './billing/api';
@@ -137,6 +138,7 @@ export default function App() {
     const [error, setError] = useState(null);
     const [showHelp, setShowHelp] = useState(false);
     const [showAuth, setShowAuth] = useState(false);
+    const [authMode, setAuthMode] = useState('register');
     const [activeId, setActiveId] = useState(null);
     const [favorites, setFavoritesState] = useState(loadFavorites());
     const [showFavOnly, setShowFavOnly] = useState(false);
@@ -175,7 +177,7 @@ export default function App() {
 
     const startTrial = async () => {
         if (!user) {
-            setShowAuth(true);
+            openAuth('register');
             return;
         }
         setCheckoutBusy(true);
@@ -310,6 +312,11 @@ export default function App() {
         }
     };
 
+    const openAuth = (mode = 'register') => {
+        setAuthMode(mode);
+        setShowAuth(true);
+    };
+
     const isAssetLocked = (assetId) => !premium && assetId !== 'GOLD';
 
     const handleCardClick = (assetId) => {
@@ -318,7 +325,7 @@ export default function App() {
             if (user) {
                 startTrial();
             } else {
-                setShowAuth(true);
+                openAuth('register');
             }
         } else {
             track('asset_view', { assetId });
@@ -353,9 +360,7 @@ export default function App() {
             <header className="sticky top-0 z-[60] backdrop-blur-xl bg-[#050505]/80 border-b border-white/8">
                 <div className="max-w-7xl mx-auto px-6 sm:px-8 py-5 flex items-center justify-between gap-4">
                     <Link to="/" className="flex items-center gap-3 group">
-                        <div className="w-10 h-10 rounded-lg bg-amber-500 text-black flex items-center justify-center shadow-[0_0_24px_-6px_rgba(245,158,11,0.7)]">
-                            <Target size={20} strokeWidth={2.5} />
-                        </div>
+                        <Logo size={40} />
                         <h1 className="font-display text-lg sm:text-xl font-bold text-white tracking-tight">
                             Speculative <span className="text-amber-400">Alpha</span>
                         </h1>
@@ -446,11 +451,11 @@ export default function App() {
                         ) : (
                             <button
                                 data-testid="login-btn"
-                                onClick={() => setShowAuth(true)}
+                                onClick={() => openAuth('register')}
                                 className="px-4 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black text-[13px] font-bold uppercase tracking-[0.18em] flex items-center gap-2 transition-colors"
                             >
                                 <LogIn size={15} />
-                                <span className="hidden sm:inline">Accedi</span>
+                                <span className="hidden sm:inline">Registrati</span>
                             </button>
                         )}
                     </div>
@@ -500,7 +505,7 @@ export default function App() {
                                 data-testid="scope-all"
                                 onClick={() => {
                                     if (!user) {
-                                        setShowAuth(true);
+                                        openAuth('register');
                                     } else {
                                         setScope('all');
                                     }
@@ -540,35 +545,7 @@ export default function App() {
                     </div>
                 )}
 
-                {/* Paywall banner for anonymous / free users */}
-                {!premium && (
-                    <div
-                        data-testid="paywall-banner"
-                        className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-amber-500/30 bg-gradient-to-r from-amber-500/[0.08] via-amber-500/[0.04] to-transparent px-6 py-4"
-                    >
-                        <div className="flex items-center gap-3">
-                            <div className="w-9 h-9 rounded-xl bg-amber-500/15 border border-amber-500/40 flex items-center justify-center">
-                                <Star size={16} className="text-amber-300" fill="#fcd34d" />
-                            </div>
-                            <div>
-                                <div className="text-[11px] tracking-[0.28em] uppercase font-bold text-amber-300 mb-0.5">
-                                    Anteprima — solo Oro è sbloccato
-                                </div>
-                                <div className="text-[13px] text-gray-300">
-                                    Accedi per sbloccare tutti gli asset · <span className="text-amber-300 font-semibold">7 giorni gratis</span>, poi 19€/mese
-                                </div>
-                            </div>
-                        </div>
-                        <button
-                            data-testid="paywall-cta-btn"
-                            onClick={startTrial}
-                            disabled={checkoutBusy}
-                            className="px-5 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black font-bold uppercase tracking-[0.18em] text-[12px] transition flex items-center gap-2 disabled:opacity-60"
-                        >
-                            <LogIn size={14} /> {checkoutBusy ? 'Apertura…' : 'Inizia la prova'}
-                        </button>
-                    </div>
-                )}
+                {/* Paywall banner removed — paywall context is conveyed via card blur + CTA on locked items */}
 
                 {/* Cards Grid */}
                 <section>
@@ -655,7 +632,7 @@ export default function App() {
                 {allCurrencies.length > 0 && (
                     <LockableSection
                         locked={!premium}
-                        onUnlock={() => (user ? startTrial() : setShowAuth(true))}
+                        onUnlock={() => (user ? startTrial() : openAuth('register'))}
                     >
                         <CurrencyStrengthIndex assets={allCurrencies} onPick={(id) => premium && setActiveId(id)} />
                     </LockableSection>
@@ -665,7 +642,7 @@ export default function App() {
                 {snapshots.length > 0 && (
                     <LockableSection
                         locked={!premium}
-                        onUnlock={() => (user ? startTrial() : setShowAuth(true))}
+                        onUnlock={() => (user ? startTrial() : openAuth('register'))}
                     >
                         <HeatmapStrip assets={snapshots} onPick={(id) => premium && setActiveId(id)} />
                     </LockableSection>
@@ -676,7 +653,7 @@ export default function App() {
                     <ConfluenceOpportunities
                         assets={snapshots}
                         locked={!premium}
-                        onUnlock={() => (user ? startTrial() : setShowAuth(true))}
+                        onUnlock={() => (user ? startTrial() : openAuth('register'))}
                         onPick={(id) => premium && setActiveId(id)}
                     />
                 )}
@@ -707,7 +684,7 @@ export default function App() {
                 />
             )}
             <HelpModal open={showHelp} onClose={() => setShowHelp(false)} />
-            <AuthModal open={showAuth} onClose={() => setShowAuth(false)} />
+            <AuthModal open={showAuth} onClose={() => setShowAuth(false)} initialMode={authMode} />
         </div>
     );
 }

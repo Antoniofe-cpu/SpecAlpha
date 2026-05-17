@@ -336,6 +336,9 @@ def build_auth_router(db_getter, get_current_user) -> APIRouter:
             raise HTTPException(status_code=409, detail="Email already registered")
         user_id = f"user_{uuid.uuid4().hex[:12]}"
         now = datetime.now(timezone.utc)
+        # NOTE: trial is granted by Stripe (via Payment Link). New users start on
+        # `free` and the frontend redirects them to Stripe immediately after
+        # registration. The webhook then flips them to `trialing` / `active`.
         doc = {
             "user_id": user_id,
             "email": email,
@@ -343,8 +346,8 @@ def build_auth_router(db_getter, get_current_user) -> APIRouter:
             "name": (body.name or email.split("@")[0]).strip(),
             "picture": "",
             "role": "user",
-            "subscription_status": "trialing",
-            "trial_ends_at": now + timedelta(days=TRIAL_DAYS),
+            "subscription_status": "free",
+            "trial_ends_at": None,
             "favorites": [],
             "created_at": now,
             "last_login_at": now,
@@ -466,8 +469,8 @@ def build_auth_router(db_getter, get_current_user) -> APIRouter:
                 "name": name or email.split("@")[0],
                 "picture": picture,
                 "role": "user",
-                "subscription_status": "trialing",
-                "trial_ends_at": now + timedelta(days=TRIAL_DAYS),
+                "subscription_status": "free",
+                "trial_ends_at": None,
                 "favorites": [],
                 "created_at": now,
             }
