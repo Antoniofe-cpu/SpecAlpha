@@ -14,6 +14,7 @@
  */
 
 const GADS_ID = 'AW-18169761925';
+const GA4_ID = 'G-3CE576SC7W';
 
 // Map app events → Google Ads conversion labels.
 // Replace 'LABEL_xxx' with the real labels Google Ads gives you for each
@@ -48,15 +49,19 @@ export function trackConversion(eventName, params = {}) {
     }
 }
 
-/** Fire a generic Google Ads page_view (already fired automatically by the
- *  base config, but useful for SPA navigations).
+/** Fire a Google Analytics 4 page_view for SPA route changes.
+ *  GA4 measures the initial hit automatically; we only need to fire on
+ *  client-side navigations so /dashboard, /account, /admin show up.
  */
 export function trackPageView(path) {
     if (!gtagAvail()) return;
+    const page_path = path || window.location.pathname + window.location.search;
     try {
         window.gtag('event', 'page_view', {
-            page_path: path || window.location.pathname,
-            send_to: GADS_ID,
+            page_path,
+            page_location: window.location.href,
+            page_title: document.title,
+            send_to: GA4_ID,
         });
     } catch (e) {
         // eslint-disable-next-line no-console
