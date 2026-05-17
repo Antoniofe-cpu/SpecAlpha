@@ -197,8 +197,6 @@ function Hero({ onCta, t, hasUser, premium }) {
                         transition={{ delay: 0.2, duration: 0.6 }}
                         className="font-display text-4xl sm:text-5xl lg:text-[68px] font-bold text-white tracking-tight leading-[1.05] mb-6"
                     >
-                        <span className="text-white">{t('landing.title_a')}</span>
-                        {t('landing.title_b') ? ' ' : ''}
                         <motion.span
                             className="text-amber-400 inline"
                             style={{
@@ -215,8 +213,10 @@ function Hero({ onCta, t, hasUser, premium }) {
                             animate={{ backgroundSize: '100% 100%' }}
                             transition={{ delay: 0.75, duration: 0.95, ease: [0.22, 1, 0.36, 1] }}
                         >
-                            {t('landing.title_b')}
+                            {t('landing.title_a')}
                         </motion.span>
+                        {t('landing.title_b') ? ' ' : ''}
+                        <span className="text-white">{t('landing.title_b')}</span>
                     </motion.h1>
                     <motion.p
                         initial={{ opacity: 0, y: 8 }}
