@@ -41,17 +41,27 @@ export function isPremium(user) {
     return false;
 }
 
-/** Redirect the freshly authenticated user to Stripe Checkout when not premium. */
+/** Redirect the freshly authenticated user to Stripe Checkout when not premium,
+ *  or to the dashboard when they already have access. */
 async function routeAfterAuth(user) {
-    if (isPremium(user)) return; // already paid / trialing → stay where you are
+    if (isPremium(user)) {
+        // Premium → go to dashboard (do not stay on the landing)
+        if (window.location.pathname !== '/dashboard') {
+            window.location.href = '/dashboard';
+        }
+        return;
+    }
     try {
         const { data } = await ax.post('/billing/checkout', { origin_url: window.location.origin });
         if (data?.url) {
             window.location.href = data.url;
         }
     } catch (e) {
-        // If checkout creation fails, do nothing — caller already saw success.
+        // If checkout creation fails, fall back to the dashboard (paywall view).
         console.warn('post-auth checkout redirect failed', e);
+        if (window.location.pathname !== '/dashboard') {
+            window.location.href = '/dashboard';
+        }
     }
 }
 

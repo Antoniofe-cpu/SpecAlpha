@@ -278,12 +278,12 @@ async def seed_admin(db: AsyncIOMotorDatabase) -> None:
         })
         logger.info("Admin user seeded: %s", admin_email)
     else:
-        # Re-hash if env password changed (idempotent across restarts)
+        # Always enforce admin role + active subscription on the seeded admin
+        # account. Re-hash if the env password changed (idempotent).
+        updates: Dict[str, Any] = {"role": "admin", "subscription_status": "active"}
         if not existing.get("password_hash") or not verify_password(admin_password, existing["password_hash"]):
-            await db.users.update_one(
-                {"_id": existing["_id"]},
-                {"$set": {"password_hash": hash_password(admin_password), "role": "admin"}},
-            )
+            updates["password_hash"] = hash_password(admin_password)
+        await db.users.update_one({"_id": existing["_id"]}, {"$set": updates})
 
 
 # ---------------------------------------------------------------------------

@@ -36,6 +36,17 @@ export default function LandingPage() {
     const { t, lang, setLang } = useT();
     const navigate = useNavigate();
 
+    // If Stripe returns the user to "/" with ?billing=success or ?billing=cancel,
+    // forward them to /dashboard so the dashboard's billing toast + polling kicks in.
+    useEffect(() => {
+        const params = new URLSearchParams(window.location.search);
+        const b = params.get('billing');
+        if (b === 'success' || b === 'cancel') {
+            navigate(`/dashboard${window.location.search}`, { replace: true });
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
     const onPrimaryCta = () => {
         if (!user) {
             setAuthMode('register');
@@ -48,7 +59,7 @@ export default function LandingPage() {
     };
 
     const onHeaderAuthClick = () => {
-        setAuthMode('register');
+        setAuthMode('login');
         setShowAuth(true);
     };
 
@@ -129,6 +140,12 @@ export default function LandingPage() {
 
 /* --------------------------------- HERO --------------------------------- */
 function Hero({ onCta, t, hasUser, premium }) {
+    const stats = [
+        { v: t('landing.stat1_v'), l: t('landing.stat1_l') },
+        { v: t('landing.stat2_v'), l: t('landing.stat2_l') },
+        { v: t('landing.stat3_v'), l: t('landing.stat3_l') },
+        { v: t('landing.stat4_v'), l: t('landing.stat4_l') },
+    ];
     return (
         <section data-testid="landing-hero" className="relative">
             <motion.div
@@ -137,26 +154,103 @@ function Hero({ onCta, t, hasUser, premium }) {
                 transition={{ duration: 0.7, ease: [0.22, 1, 0.36, 1] }}
                 className="relative overflow-hidden rounded-[36px] border border-white/[0.08] bg-gradient-to-br from-[#13131a] via-[#0c0c10] to-black p-10 sm:p-16"
             >
-                <div className="pointer-events-none absolute -top-32 -right-40 w-[480px] h-[480px] rounded-full bg-amber-500/[0.12] blur-3xl" />
-                <div className="pointer-events-none absolute -bottom-40 -left-20 w-[400px] h-[400px] rounded-full bg-sky-500/[0.08] blur-3xl" />
+                {/* Animated background orbs */}
+                <motion.div
+                    className="pointer-events-none absolute -top-32 -right-40 w-[480px] h-[480px] rounded-full bg-amber-500/[0.14] blur-3xl"
+                    animate={{ scale: [1, 1.1, 1], opacity: [0.8, 1, 0.8] }}
+                    transition={{ duration: 8, repeat: Infinity, ease: 'easeInOut' }}
+                />
+                <motion.div
+                    className="pointer-events-none absolute -bottom-40 -left-20 w-[400px] h-[400px] rounded-full bg-sky-500/[0.08] blur-3xl"
+                    animate={{ scale: [1, 1.15, 1], opacity: [0.7, 1, 0.7] }}
+                    transition={{ duration: 10, repeat: Infinity, ease: 'easeInOut', delay: 1 }}
+                />
+
+                {/* Floating grid lines */}
+                <svg className="pointer-events-none absolute inset-0 opacity-[0.04]" width="100%" height="100%">
+                    <defs>
+                        <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+                            <path d="M 40 0 L 0 0 0 40" fill="none" stroke="white" strokeWidth="0.5" />
+                        </pattern>
+                    </defs>
+                    <rect width="100%" height="100%" fill="url(#grid)" />
+                </svg>
 
                 <div className="relative max-w-3xl">
-                    <div className="inline-flex items-center gap-2 text-[10px] tracking-[0.3em] uppercase font-bold text-amber-300 mb-5 border border-amber-500/30 bg-amber-500/[0.06] rounded-full px-3 py-1.5">
+                    <motion.div
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.15, duration: 0.5 }}
+                        className="inline-flex items-center gap-2 text-[10px] tracking-[0.3em] uppercase font-bold text-amber-300 mb-5 border border-amber-500/30 bg-amber-500/[0.06] rounded-full px-3 py-1.5"
+                    >
                         <Sparkles size={11} />
                         {t('landing.kicker')}
-                    </div>
-                    <h1 className="font-display text-4xl sm:text-5xl lg:text-[68px] font-bold text-white tracking-tight leading-[1.02] mb-6">
-                        {t('landing.title_a')} <span className="text-amber-400">{t('landing.title_b')}</span><br />
+                    </motion.div>
+                    <motion.h1
+                        initial={{ opacity: 0, y: 12 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.2, duration: 0.6 }}
+                        className="font-display text-4xl sm:text-5xl lg:text-[68px] font-bold text-white tracking-tight leading-[1.02] mb-6"
+                    >
+                        {t('landing.title_a')}{' '}
+                        <span className="relative inline-block">
+                            <span className="text-amber-400">{t('landing.title_b')}</span>
+                            <motion.span
+                                className="absolute -inset-x-2 -bottom-1 h-[3px] bg-gradient-to-r from-transparent via-amber-400/80 to-transparent rounded-full"
+                                initial={{ scaleX: 0 }}
+                                animate={{ scaleX: 1 }}
+                                transition={{ delay: 0.7, duration: 0.8 }}
+                                style={{ transformOrigin: 'left' }}
+                            />
+                        </span>
+                        <br />
                         {t('landing.title_c')}<br />{t('landing.title_d')}
-                    </h1>
-                    <p className="text-[15px] sm:text-[17px] text-gray-400 leading-relaxed mb-9 max-w-xl">
+                    </motion.h1>
+                    <motion.p
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.35, duration: 0.5 }}
+                        className="text-[15px] sm:text-[17px] text-gray-400 leading-relaxed mb-8 max-w-xl"
+                    >
                         {t('landing.subtitle')}
-                    </p>
+                    </motion.p>
 
-                    <PremiumCTA
-                        onCta={onCta}
-                        label={premium ? t('landing.cta_pulse_b') : t('landing.cta_pulse_a')}
-                    />
+                    {/* Data points strip */}
+                    <motion.div
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.5, duration: 0.5 }}
+                        className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-9 max-w-xl"
+                        data-testid="landing-stats"
+                    >
+                        {stats.map((s, i) => (
+                            <motion.div
+                                key={s.l}
+                                initial={{ opacity: 0, y: 8 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                transition={{ delay: 0.55 + i * 0.06, duration: 0.4 }}
+                                className="rounded-2xl border border-white/[0.07] bg-white/[0.02] backdrop-blur-sm px-3 py-2.5"
+                            >
+                                <div className="font-mono text-[22px] font-bold text-amber-300 tnum leading-none">
+                                    {s.v}
+                                </div>
+                                <div className="mt-1 text-[10px] uppercase tracking-[0.18em] text-gray-500 font-semibold">
+                                    {s.l}
+                                </div>
+                            </motion.div>
+                        ))}
+                    </motion.div>
+
+                    <motion.div
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.7, duration: 0.5 }}
+                    >
+                        <PremiumCTA
+                            onCta={onCta}
+                            label={premium ? t('landing.cta_pulse_b') : t('landing.cta_pulse_a')}
+                        />
+                    </motion.div>
 
                     <div className="mt-6 flex items-center gap-3 text-[11px] text-gray-500 uppercase tracking-[0.22em] font-mono">
                         <Lock size={11} className="text-amber-400/60" />
