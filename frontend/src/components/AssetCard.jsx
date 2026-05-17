@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import ReactDOM from 'react-dom';
 import { motion } from 'framer-motion';
-import { Maximize2, Activity, RefreshCw, Star, Info } from 'lucide-react';
+import { Maximize2, Activity, RefreshCw, Star, Info, Lock } from 'lucide-react';
 import { cn, formatNumber, formatSigned, getTrendAnalysis } from '../utils';
 import { useT } from '../i18n';
 
@@ -57,7 +57,7 @@ function InfoTooltip({ text, label }) {
     );
 }
 
-export default function AssetCard({ asset, isLoading, isFavorite, onClick, onToggleFav, index = 0 }) {
+export default function AssetCard({ asset, isLoading, isFavorite, onClick, onToggleFav, index = 0, locked = false }) {
     const { t } = useT();
     const trend = getTrendAnalysis(asset);
     const total = (asset?.long || 0) + (asset?.short || 0) || 1;
@@ -70,16 +70,58 @@ export default function AssetCard({ asset, isLoading, isFavorite, onClick, onTog
 
     return (
         <motion.div
-            data-testid={`asset-card-${asset.assetId}`}
+            data-testid={`asset-card-${asset.assetId}${locked ? '-locked' : ''}`}
             initial={{ opacity: 0, y: 24 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay: index * 0.04, ease: [0.22, 1, 0.36, 1] }}
             whileHover={{ y: -4 }}
             onClick={onClick}
-            className="relative bg-gradient-to-b from-[#13131a] to-[#0d0d12] border border-white/[0.08] rounded-[28px] p-7 cursor-pointer hover:border-amber-500/30 hover:from-[#16161e] hover:to-[#101015] transition-colors group soft-shadow"
+            className="relative bg-gradient-to-b from-[#13131a] to-[#0d0d12] border border-white/[0.08] rounded-[28px] p-7 cursor-pointer hover:border-amber-500/30 hover:from-[#16161e] hover:to-[#101015] transition-colors group soft-shadow overflow-hidden"
         >
             <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-amber-500/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
 
+            {/* Inner content — gets blurred when locked */}
+            <div className={cn('relative', locked && 'pointer-events-none select-none blur-[10px] saturate-50 opacity-70')}>
+                <CardBody
+                    asset={asset}
+                    isFavorite={isFavorite}
+                    onToggleFav={onToggleFav}
+                    trend={trend}
+                    longRatio={longRatio}
+                    oiText={oiText}
+                    t={t}
+                />
+            </div>
+
+            {locked && (
+                <div
+                    data-testid={`paywall-overlay-${asset.assetId}`}
+                    className="absolute inset-0 flex flex-col items-center justify-center text-center px-6 z-10"
+                >
+                    <div className="w-12 h-12 rounded-full bg-amber-500/15 border border-amber-500/40 flex items-center justify-center mb-3 shadow-[0_0_30px_-6px_rgba(245,158,11,0.45)]">
+                        <Lock size={18} className="text-amber-300" />
+                    </div>
+                    <div className="text-[10px] tracking-[0.28em] uppercase font-bold text-amber-300 mb-1">
+                        Premium
+                    </div>
+                    <div className="font-display text-[16px] font-semibold text-white leading-snug mb-2">
+                        {asset.name}
+                    </div>
+                    <p className="text-[12px] text-gray-400 max-w-[220px] leading-relaxed mb-3">
+                        Sblocca questo asset con la prova gratuita di 7 giorni.
+                    </p>
+                    <span className="text-[11px] uppercase tracking-[0.22em] font-bold text-amber-400">
+                        Accedi →
+                    </span>
+                </div>
+            )}
+        </motion.div>
+    );
+}
+
+function CardBody({ asset, isFavorite, onToggleFav, trend, longRatio, oiText, t }) {
+    return (
+        <>
             <div className="flex items-start justify-between mb-6">
                 <div>
                     <div className="text-[11px] tracking-[0.28em] uppercase font-semibold text-amber-400/90 mb-1.5">
@@ -122,10 +164,8 @@ export default function AssetCard({ asset, isLoading, isFavorite, onClick, onTog
                 {t(trend.signalKey)}
             </div>
 
-            {/* Confluence Index — proprietary 0-100 agreement strength */}
             {asset.confluenceIndex !== undefined && asset.confluenceIndex !== null && (() => {
                 const ci = Number(asset.confluenceIndex);
-                // Color reflects STRENGTH of confluence (not direction)
                 const strengthTone = ci >= 80 ? 'veryhigh' : ci >= 60 ? 'high' : ci >= 40 ? 'moderate' : ci >= 20 ? 'low' : 'verylow';
                 const strengthStyles = {
                     veryhigh: 'from-amber-400/20 to-amber-500/10 border-amber-400/50 text-amber-200',
@@ -155,7 +195,6 @@ export default function AssetCard({ asset, isLoading, isFavorite, onClick, onTog
                 );
             })()}
 
-            {/* Net Position + Delta */}
             <div className="grid grid-cols-2 gap-4 mb-6">
                 <div>
                     <div className="text-[11px] uppercase tracking-[0.22em] text-gray-500 font-semibold mb-1.5">
@@ -180,59 +219,32 @@ export default function AssetCard({ asset, isLoading, isFavorite, onClick, onTog
                 </div>
             </div>
 
-            {/* Long/Short bar with absolute breakdown */}
             <div className="mb-6">
                 <div className="h-2 w-full bg-white/[0.06] rounded-full overflow-hidden flex mb-3">
-                    <div
-                        className="h-full bg-gradient-to-r from-[#10b981]/70 to-[#34d399]"
-                        style={{ width: `${longRatio}%` }}
-                    />
-                    <div
-                        className="h-full bg-gradient-to-r from-[#f43f5e] to-[#fb7185]/70"
-                        style={{ width: `${100 - longRatio}%` }}
-                    />
+                    <div className="h-full bg-gradient-to-r from-[#10b981]/70 to-[#34d399]" style={{ width: `${longRatio}%` }} />
+                    <div className="h-full bg-gradient-to-r from-[#f43f5e] to-[#fb7185]/70" style={{ width: `${100 - longRatio}%` }} />
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                     <div className="bg-[#10b981]/[0.06] border border-[#10b981]/20 rounded-2xl p-3.5">
                         <div className="flex items-center justify-between mb-1">
-                            <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#34d399]">
-                                Long
-                            </span>
-                            <span
-                                className={cn(
-                                    'font-mono text-[12px] font-semibold tnum',
-                                    (asset.changeLong || 0) >= 0 ? 'text-[#34d399]' : 'text-[#fb7185]'
-                                )}
-                            >
+                            <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#34d399]">Long</span>
+                            <span className={cn('font-mono text-[12px] font-semibold tnum', (asset.changeLong || 0) >= 0 ? 'text-[#34d399]' : 'text-[#fb7185]')}>
                                 {formatSigned(asset.changeLong)}
                             </span>
                         </div>
-                        <div className="font-mono text-[18px] font-semibold text-white tnum">
-                            {formatNumber(asset.long)}
-                        </div>
+                        <div className="font-mono text-[18px] font-semibold text-white tnum">{formatNumber(asset.long)}</div>
                     </div>
                     <div className="bg-[#f43f5e]/[0.06] border border-[#f43f5e]/20 rounded-2xl p-3.5">
                         <div className="flex items-center justify-between mb-1">
-                            <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#fb7185]">
-                                Short
-                            </span>
-                            <span
-                                className={cn(
-                                    'font-mono text-[12px] font-semibold tnum',
-                                    (asset.changeShort || 0) <= 0 ? 'text-[#34d399]' : 'text-[#fb7185]'
-                                )}
-                            >
+                            <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#fb7185]">Short</span>
+                            <span className={cn('font-mono text-[12px] font-semibold tnum', (asset.changeShort || 0) <= 0 ? 'text-[#34d399]' : 'text-[#fb7185]')}>
                                 {formatSigned(asset.changeShort)}
                             </span>
                         </div>
-                        <div className="font-mono text-[18px] font-semibold text-white tnum">
-                            {formatNumber(asset.short)}
-                        </div>
+                        <div className="font-mono text-[18px] font-semibold text-white tnum">{formatNumber(asset.short)}</div>
                     </div>
                 </div>
             </div>
-
-            {/* Top stats grid removed — straight from Confluence to OI/Intensity footer */}
 
             <div className="flex items-center justify-between border-t border-white/[0.06] pt-5">
                 <div>
@@ -240,19 +252,15 @@ export default function AssetCard({ asset, isLoading, isFavorite, onClick, onTog
                         {t('card.oi_share')}
                         <InfoTooltip text={oiText} label={t('card.oi_tooltip_label')} />
                     </div>
-                    <div className="font-mono text-[16px] text-white tnum font-semibold">
-                        {asset.openInterestShare ?? '—'}%
-                    </div>
+                    <div className="font-mono text-[16px] text-white tnum font-semibold">{asset.openInterestShare ?? '—'}%</div>
                 </div>
                 <div className="text-right">
                     <div className="text-[11px] uppercase tracking-[0.22em] text-gray-500 font-semibold mb-0.5">
                         {t('card.intensity')}
                     </div>
-                    <div className="font-mono text-[16px] text-white tnum font-semibold">
-                        {asset.intensityIndex ?? '—'}/100
-                    </div>
+                    <div className="font-mono text-[16px] text-white tnum font-semibold">{asset.intensityIndex ?? '—'}/100</div>
                 </div>
             </div>
-        </motion.div>
+        </>
     );
 }

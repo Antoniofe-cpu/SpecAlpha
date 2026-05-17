@@ -1,0 +1,58 @@
+{
+  "summary": "Phase 3 auth + favorites + paywall + rate-limit testing. Backend: 16/18 PASS, 1 XFAIL (rate-limit burst), 1 FAIL (brute-force lockout). All auth happy paths (register/login/me/refresh/logout/session/forgot/favorites) and regression endpoints (/api/assets=18, /api/cot/bulk?scope=core=7, /api/macro/EURUSD with impact 2/3) work. Frontend: all critical flows verified end-to-end — anonymous paywall (only GOLD unlocked, others blurred with PREMIUM overlay), click locked card opens auth modal, register creates trialing user with user-chip='UI Test Trial' and unlocks all cards, logout reverts to paywall, admin login shows 'Admin Pro' chip with 0 locked cards, favorite toggle persists across reload (verified via /api/auth/favorites returning ['GOLD']).",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "POST /api/auth/login",
+        "issue": "Brute-force lockout never triggers — 7 consecutive wrong-password attempts all returned 401, never 429. Root cause: auth.py uses `request.client.host` for the lockout identifier, which behind the K8s/ingress proxy can be the proxy's IP and may rotate across worker pods. rate_limit.py correctly uses X-Forwarded-For; the auth lockout should do the same (or key the lockout by email alone, not IP+email).",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "Rate limit (120/60s) on /api/*",
+        "issue": "160 rapid GET /api/assets requests did NOT trigger any 429. Either the in-memory bucket is per-worker (multi-worker uvicorn defeats the limiter) or XFF rotation is per-request. Marked xfail in pytest; recommend Redis-backed limiter or rely solely on platform ingress rate-limit. Same root cause family as the auth lockout."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "AuthModal",
+        "issue": "Modal does not reset to login mode when reopened via the header 'Accedi' button after a previous register/logout cycle — it retains the last mode (register). User who logs out and clicks Accedi sees the registration form by default, gets a 409 if they retry with the same email, then has to click 'Accedi' link inside the modal.",
+        "selector": "[data-testid='auth-modal']",
+        "priority": "MEDIUM"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_auth_api.py",
+    "/app/test_reports/pytest/iter5_results.xml"
+  ],
+  "action_items": [
+    "FIX HIGH: In /app/backend/auth.py, replace `client_ip = request.client.host` (used inside login lockout identifier) with X-Forwarded-For-first IP resolution OR key the lockout solely by `email` so it works behind any proxy. Currently the documented security control 'lockout after 5 failed attempts' is non-functional in this deployment.",
+    "FIX MEDIUM: In /app/frontend/src/auth/AuthModal.jsx, force `setMode('login')` whenever the modal opens via the header login button (e.g. via a `defaultMode` prop or useEffect on `isOpen` transition).",
+    "INVESTIGATE: Rate-limit middleware not triggering at 160 reqs/min from a single client. Confirm uvicorn worker count and/or move bucket store to Redis if multi-worker. If single-worker, verify XFF parsing returns a stable IP for the test client."
+  ],
+  "critical_code_review_comments": [
+    "auth.py:345 — lockout identifier uses request.client.host (proxy IP) while rate_limit.py:74 correctly prefers X-Forwarded-For. Inconsistent IP resolution defeats the lockout in production.",
+    "auth.py:104-113 _set_auth_cookies uses samesite='none' + secure — correct for cross-origin preview. domain attribute is omitted, so cookies bind to the backend host; verified working via withCredentials in the SPA which is served from the same host.",
+    "auth.py:266-270 seed_admin correctly re-hashes when ADMIN_PASSWORD changes — verified admin login worked on a fresh container.",
+    "auth.py:458 favorites stored uppercased & deduped — matches frontend asset id casing (GOLD, EURUSD).",
+    "rate_limit.py uses in-memory deque — will not work across multiple uvicorn workers. Either pin workers=1 or move to Redis. Document this limitation in the file header (already partially noted).",
+    "AuthModal.jsx — `mode` state isn't reset when the modal is reopened, leading to the 'opens in register mode after a register/logout cycle' UX bug observed in testing.",
+    "AssetCard.jsx — locked variant correctly bubbles click via the wrapping <button>, modal opens reliably (verified)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_auth_api.py (NEW: 18 pytest tests covering auth flow, favorites, lockout, rate-limit, regression)"
+  ],
+  "success_rate": {"backend": "89% (16/18 + 1 xfail; 1 hard fail = lockout)", "frontend": "95% (all primary auth+paywall+favorite flows pass; minor modal-mode UX bug)"},
+  "test_credentials": "Admin admin@specalpha.io / ChangeMe!2026 verified working. Test users auto-created via /api/auth/register (trialing 7d).",
+  "seed_data_creation": "None — used random TEST_<uuid>@example.com emails per test. Each registered user persists in `users` collection (cleanup not implemented; acceptable for trial-style data).",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Re-run: cd /app/backend && REACT_APP_BACKEND_URL=https://dashboard-auth-phase.preview.emergentagent.com pytest tests/test_auth_api.py -v --junitxml=/app/test_reports/pytest/iterN_results.xml. After main agent fixes the lockout IP-resolution bug, the test_five_failed_admin_logins_lockout test should pass. The rate-limit burst test is XFail-tolerant. Frontend selectors of interest: [data-testid='paywall-banner'], [data-testid='asset-card-SP500-locked'], [data-testid='paywall-overlay-SP500'], [data-testid='auth-modal'], [data-testid='auth-switch-login'/'auth-switch-register'], [data-testid='user-chip'], [data-testid='login-btn'], [data-testid='logout-btn'], [data-testid='fav-toggle-<assetId>']. Cookies are samesite=none+secure — must test through the HTTPS preview URL, not localhost.",
+  "rca of the issue": "Brute-force lockout failure RCA — Identified via repeated 401s without ever escalating to 429. Reproduction: POST /api/auth/login 7× with valid email + wrong password. Expected: 429 from attempt 6. Actual: all 7 returned 401. Root cause: auth.py builds the lockout key as `f\"{request.client.host}:{email}\"` where `request.client.host` is the immediate TCP peer (k8s service-mesh proxy / sidecar) — this varies per request in this deployment, so each attempt writes a fresh row in `login_attempts` and the count never reaches MAX_FAILED_ATTEMPTS=5. Mitigation: read X-Forwarded-For (already done correctly in rate_limit.py:74) — or, more robust, key the lockout by `email` only (a malicious actor can rotate IPs anyway). Suggested 2-line patch in auth.py login handler: `fwd = request.headers.get('x-forwarded-for'); client_ip = (fwd.split(',')[0].strip() if fwd else (request.client.host if request.client else 'anon'))`."
+}

@@ -426,6 +426,17 @@ class CotSnapshot(BaseModel):
 app = FastAPI(title="Speculative Alpha COT API", version="1.0.0")
 api = APIRouter(prefix="/api")
 
+# Auth wiring — uses a getter so the db reference resolves lazily.
+from auth import (  # noqa: E402
+    build_auth_router,
+    ensure_auth_indexes,
+    get_user_resolver,
+    seed_admin,
+)
+
+_get_current_user, _get_optional_user = get_user_resolver(lambda: db)
+api.include_router(build_auth_router(lambda: db, _get_current_user))
+
 
 @api.get("/health")
 async def health() -> Dict[str, Any]:
@@ -1566,8 +1577,17 @@ app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
     allow_origins=os.environ.get("CORS_ORIGINS", "*").split(","),
+    allow_origin_regex=".*",
     allow_methods=["*"],
     allow_headers=["*"],
+)
+
+# Rate limiting — 120 req/min per IP on /api/* (skips /api/health)
+from rate_limit import IPRateLimiter  # noqa: E402
+app.add_middleware(
+    IPRateLimiter,
+    max_requests=int(os.environ.get("RATE_LIMIT_MAX", "120")),
+    window_seconds=int(os.environ.get("RATE_LIMIT_WINDOW", "60")),
 )
 
 
@@ -1723,6 +1743,12 @@ async def _saturday_refresh_loop() -> None:
 @app.on_event("startup")
 async def on_startup() -> None:
     global _refresh_task, _warm_task
+    # Auth bootstrap: indexes + admin seed (idempotent)
+    try:
+        await ensure_auth_indexes(db)
+        await seed_admin(db)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("auth bootstrap failed: %s", e)
     _refresh_task = asyncio.create_task(_saturday_refresh_loop())
     # Initial pre-warm on startup so the very first visit (e.g. after a
     # cold-start on Render free tier) finds populated data within ~1 min.

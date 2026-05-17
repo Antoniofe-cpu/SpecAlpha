@@ -11,6 +11,9 @@ import {
     Star,
     Globe,
     Plus,
+    LogIn,
+    LogOut,
+    UserCircle2,
 } from 'lucide-react';
 import './App.css';
 import AssetCard from './components/AssetCard';
@@ -18,6 +21,8 @@ import AssetDetailModal from './components/AssetDetailModal';
 import HelpModal from './components/HelpModal';
 import HeatmapStrip from './components/HeatmapStrip';
 import CurrencyStrengthIndex from './components/CurrencyStrengthIndex';
+import AuthModal from './auth/AuthModal';
+import { useAuth, isPremium } from './auth/AuthContext';
 import { fetchAssets, fetchBulk, refreshCache } from './api';
 import { cn, nextSaturdayUTC } from './utils';
 import { useT } from './i18n';
@@ -94,6 +99,8 @@ function LangToggle({ inline = false }) {
 
 export default function App() {
     const { t, lang } = useT();
+    const { user, logout, setFavorites: persistFavorites } = useAuth();
+    const premium = isPremium(user);
     const [meta, setMeta] = useState([]);
     const [snapshots, setSnapshots] = useState([]);
     const [allCurrencies, setAllCurrencies] = useState([]);
@@ -101,10 +108,26 @@ export default function App() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [showHelp, setShowHelp] = useState(false);
+    const [showAuth, setShowAuth] = useState(false);
     const [activeId, setActiveId] = useState(null);
-    const [favorites, setFavorites] = useState(loadFavorites());
+    const [favorites, setFavoritesState] = useState(loadFavorites());
     const [showFavOnly, setShowFavOnly] = useState(false);
     const [refreshing, setRefreshing] = useState(false);
+
+    // When user logs in, prefer server-side favorites (merge with local first time)
+    useEffect(() => {
+        if (!user) return;
+        const local = loadFavorites();
+        const server = user.favorites || [];
+        const merged = Array.from(new Set([...server, ...local]));
+        setFavoritesState(merged);
+        if (merged.length !== server.length) {
+            persistFavorites(merged).catch(() => {});
+        }
+        // Clear local cache once synced
+        try { localStorage.removeItem(FAV_KEY); } catch {}
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [user?.user_id]);
 
     const CURRENCY_IDS = ['EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCAD', 'USDCHF', 'NZDUSD'];
 
@@ -170,9 +193,13 @@ export default function App() {
     }, [lang]);
 
     const toggleFav = (id) => {
-        setFavorites((prev) => {
+        setFavoritesState((prev) => {
             const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
-            saveFavorites(next);
+            if (user) {
+                persistFavorites(next).catch(() => {});
+            } else {
+                saveFavorites(next);
+            }
             return next;
         });
     };
@@ -186,6 +213,16 @@ export default function App() {
             console.error(e);
         } finally {
             setRefreshing(false);
+        }
+    };
+
+    const isAssetLocked = (assetId) => !premium && assetId !== 'GOLD';
+
+    const handleCardClick = (assetId) => {
+        if (isAssetLocked(assetId)) {
+            setShowAuth(true);
+        } else {
+            setActiveId(assetId);
         }
     };
 
@@ -255,6 +292,42 @@ export default function App() {
                             <HelpCircle size={15} />
                             <span className="hidden sm:inline">{t('app.guide')}</span>
                         </button>
+                        {user ? (
+                            <div className="flex items-center gap-2">
+                                <div data-testid="user-chip" className="hidden sm:flex items-center gap-2 px-3 py-2 rounded-2xl border border-white/10 bg-white/[0.04]">
+                                    {user.picture ? (
+                                        <img src={user.picture} alt="" className="w-6 h-6 rounded-full" />
+                                    ) : (
+                                        <UserCircle2 size={18} className="text-amber-400" />
+                                    )}
+                                    <span className="text-[12px] font-mono text-gray-300 max-w-[140px] truncate">
+                                        {user.name || user.email}
+                                    </span>
+                                    {premium && (
+                                        <span className="text-[9px] font-bold uppercase tracking-[0.2em] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                                            {user.subscription_status === 'trialing' ? 'Trial' : 'Pro'}
+                                        </span>
+                                    )}
+                                </div>
+                                <button
+                                    data-testid="logout-btn"
+                                    onClick={logout}
+                                    title="Logout"
+                                    className="p-2.5 rounded-2xl bg-white/[0.06] hover:bg-rose-500/15 hover:border-rose-500/40 border border-white/10 text-gray-300 transition-colors"
+                                >
+                                    <LogOut size={15} />
+                                </button>
+                            </div>
+                        ) : (
+                            <button
+                                data-testid="login-btn"
+                                onClick={() => setShowAuth(true)}
+                                className="px-4 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black text-[13px] font-bold uppercase tracking-[0.18em] flex items-center gap-2 transition-colors"
+                            >
+                                <LogIn size={15} />
+                                <span className="hidden sm:inline">Accedi</span>
+                            </button>
+                        )}
                     </div>
                 </div>
             </header>
@@ -319,6 +392,35 @@ export default function App() {
                     </div>
                 )}
 
+                {/* Paywall banner for anonymous / free users */}
+                {!premium && (
+                    <div
+                        data-testid="paywall-banner"
+                        className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-amber-500/30 bg-gradient-to-r from-amber-500/[0.08] via-amber-500/[0.04] to-transparent px-6 py-4"
+                    >
+                        <div className="flex items-center gap-3">
+                            <div className="w-9 h-9 rounded-xl bg-amber-500/15 border border-amber-500/40 flex items-center justify-center">
+                                <Star size={16} className="text-amber-300" fill="#fcd34d" />
+                            </div>
+                            <div>
+                                <div className="text-[11px] tracking-[0.28em] uppercase font-bold text-amber-300 mb-0.5">
+                                    Anteprima — solo Oro è sbloccato
+                                </div>
+                                <div className="text-[13px] text-gray-300">
+                                    Accedi per sbloccare tutti gli asset · <span className="text-amber-300 font-semibold">7 giorni gratis</span>, poi 19€/mese
+                                </div>
+                            </div>
+                        </div>
+                        <button
+                            data-testid="paywall-cta-btn"
+                            onClick={() => setShowAuth(true)}
+                            className="px-5 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black font-bold uppercase tracking-[0.18em] text-[12px] transition flex items-center gap-2"
+                        >
+                            <LogIn size={14} /> Inizia la prova
+                        </button>
+                    </div>
+                )}
+
                 {/* Cards Grid */}
                 <section>
                     {loading && !snapshots.length ? (
@@ -343,7 +445,8 @@ export default function App() {
                                     index={i}
                                     isFavorite={favorites.includes(asset.assetId)}
                                     isLoading={refreshing}
-                                    onClick={() => setActiveId(asset.assetId)}
+                                    locked={isAssetLocked(asset.assetId)}
+                                    onClick={() => handleCardClick(asset.assetId)}
                                     onToggleFav={toggleFav}
                                 />
                             ))}
@@ -433,6 +536,7 @@ export default function App() {
                 />
             )}
             <HelpModal open={showHelp} onClose={() => setShowHelp(false)} />
+            <AuthModal open={showAuth} onClose={() => setShowAuth(false)} />
         </div>
     );
 }
