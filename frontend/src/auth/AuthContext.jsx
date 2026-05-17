@@ -112,6 +112,21 @@ export function AuthProvider({ children }) {
         };
     }, [refreshMe]);
 
+    // Refresh user state whenever the tab gains focus. Catches the moment the
+    // user returns from Stripe Checkout / Customer Portal so subscription
+    // status flips from "free" → "trialing" or "trialing" → "active" without
+    // requiring a manual page reload.
+    useEffect(() => {
+        const onFocus = () => { refreshMe(); };
+        window.addEventListener('focus', onFocus);
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') refreshMe();
+        });
+        return () => {
+            window.removeEventListener('focus', onFocus);
+        };
+    }, [refreshMe]);
+
     const login = useCallback(async (email, password) => {
         const { data } = await ax.post('/auth/login', { email, password });
         setUser(data);

@@ -410,15 +410,24 @@ export default function App() {
                                         <Activity size={15} />
                                     </button>
                                 )}
-                                {!premium && (
+                                {!premium && !user.stripe_subscription_id && (
                                     <button
                                         data-testid="header-trial-btn"
                                         onClick={startTrial}
                                         disabled={checkoutBusy}
                                         className="hidden sm:inline-flex px-3 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black text-[11px] font-bold uppercase tracking-[0.18em] items-center gap-1.5 transition disabled:opacity-60"
                                     >
-                                        Inizia la prova
+                                        {t('app.start_trial')}
                                     </button>
+                                )}
+                                {!premium && user.stripe_subscription_id && (
+                                    <span
+                                        data-testid="header-trial-pending"
+                                        title={t('app.trial_pending_hint')}
+                                        className="hidden sm:inline-flex px-3 py-2.5 rounded-2xl bg-amber-500/15 border border-amber-500/40 text-amber-300 text-[11px] font-bold uppercase tracking-[0.18em] items-center gap-1.5"
+                                    >
+                                        {t('app.trial_pending')}
+                                    </span>
                                 )}
                                 <button
                                     data-testid="logout-btn"

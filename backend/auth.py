@@ -133,6 +133,10 @@ def _public_user(doc: Dict[str, Any]) -> Dict[str, Any]:
         "role": doc.get("role") or "user",
         "subscription_status": doc.get("subscription_status") or "free",
         "trial_ends_at": _to_iso(doc.get("trial_ends_at")),
+        "current_period_end": _to_iso(doc.get("current_period_end")),
+        "cancel_at_period_end": bool(doc.get("cancel_at_period_end")),
+        "stripe_customer_id": doc.get("stripe_customer_id"),
+        "stripe_subscription_id": doc.get("stripe_subscription_id"),
         "favorites": doc.get("favorites") or [],
         "has_password": bool(doc.get("password_hash")),
         "google_linked": bool(doc.get("google_id")),
@@ -408,6 +412,14 @@ def build_auth_router(db_getter, get_current_user) -> APIRouter:
 
     @router.get("/me")
     async def me(user: Dict[str, Any] = Depends(get_current_user)):
+        # Self-heal subscription status from Stripe (cheap no-op when fresh).
+        # Catches missed webhooks (e.g. wrong endpoint after redeploy) and
+        # the moment right after a checkout when Stripe hasn't called us yet.
+        try:
+            from billing import refresh_user_from_stripe_if_stale
+            user = await refresh_user_from_stripe_if_stale(db_getter(), user)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("me self-heal failed: %s", e)
         return _public_user(user)
 
     @router.post("/refresh")

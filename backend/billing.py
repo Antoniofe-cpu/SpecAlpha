@@ -114,6 +114,7 @@ async def _apply_subscription_to_user(
         "stripe_subscription_id": sub.get("id"),
         "current_period_end": _utc_from_ts(sub.get("current_period_end")),
         "cancel_at_period_end": bool(sub.get("cancel_at_period_end")),
+        "stripe_synced_at": datetime.now(timezone.utc),
     }
     trial_end = _utc_from_ts(sub.get("trial_end"))
     if trial_end is not None:
@@ -124,6 +125,56 @@ async def _apply_subscription_to_user(
     await db.users.update_one({"user_id": user["user_id"]}, {"$set": update})
     user.update(update)
     return user
+
+
+async def refresh_user_from_stripe_if_stale(
+    db: AsyncIOMotorDatabase,
+    user: Dict[str, Any],
+    *,
+    max_age_sec: int = 600,
+) -> Dict[str, Any]:
+    """Self-heal: re-pull the subscription from Stripe whenever the user's
+    cached status could be out of date (e.g. webhook missed, trial expired,
+    just-completed checkout). Cheap no-op when not needed.
+
+    Trigger conditions (any):
+        - cached status is "trialing" but trial_ends_at has passed
+        - cached status is "past_due" (could have recovered)
+        - cached status is "free"/None but a stripe_subscription_id exists
+          (webhook hasn't fired yet)
+        - last sync older than `max_age_sec`
+    """
+    sub_id = user.get("stripe_subscription_id")
+    if not sub_id:
+        return user
+    status = user.get("subscription_status") or "free"
+    trial_end = user.get("trial_ends_at")
+    now = datetime.now(timezone.utc)
+
+    stale = False
+    if status == "trialing":
+        if not trial_end or (isinstance(trial_end, datetime) and trial_end <= now):
+            stale = True
+    if status in ("past_due", "free") or status is None:
+        stale = True
+    last_sync = user.get("stripe_synced_at")
+    if isinstance(last_sync, datetime):
+        if (now - (last_sync if last_sync.tzinfo else last_sync.replace(tzinfo=timezone.utc))).total_seconds() > max_age_sec:
+            stale = True
+    else:
+        stale = True
+
+    if not stale:
+        return user
+
+    try:
+        stripe.api_key = _stripe_key()
+        sub = stripe.Subscription.retrieve(sub_id)
+        updated = await _apply_subscription_to_user(db, sub, user_id=user.get("user_id"))
+        return updated or user
+    except Exception as e:  # noqa: BLE001
+        logger.warning("self-heal stripe refresh failed for %s: %s", user.get("user_id"), e)
+        return user
 
 
 # ---------------------------------------------------------------------------
