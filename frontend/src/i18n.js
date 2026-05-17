@@ -31,11 +31,11 @@ const STR = {
 
         // Landing
         'landing.kicker': 'Trader Intelligence',
-        'landing.title_a': 'Anticipa il',
+        'landing.title_a': 'La mappa del',
         'landing.title_b': 'capitale istituzionale.',
         'landing.title_c': '',
         'landing.title_d': '',
-        'landing.subtitle': 'Costruito per chi legge davvero i mercati.',
+        'landing.subtitle': 'Il mercato, dal lato che conta.',
         'landing.stat1_v': '18',
         'landing.stat1_l': 'Asset coperti',
         'landing.stat2_v': '0-100',
@@ -394,11 +394,11 @@ const STR = {
 
         // Landing
         'landing.kicker': 'Trader Intelligence',
-        'landing.title_a': 'Anticipate',
+        'landing.title_a': 'The map of',
         'landing.title_b': 'institutional capital.',
         'landing.title_c': '',
         'landing.title_d': '',
-        'landing.subtitle': 'Built for those who really read the markets.',
+        'landing.subtitle': 'The market, from the side that matters.',
         'landing.stat1_v': '18',
         'landing.stat1_l': 'Assets covered',
         'landing.stat2_v': '0-100',
