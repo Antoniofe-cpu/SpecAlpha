@@ -431,9 +431,15 @@ def build_admin_router(db_getter, get_current_user) -> APIRouter:
         return {"ok": True, "trial_ends_at": new_end.isoformat()}
 
     @router.post("/users/{user_id}/role")
-    async def set_role(user_id: str, body: SetRoleBody, _: Dict[str, Any] = Depends(admin_dep)):
+    async def set_role(
+        user_id: str,
+        body: SetRoleBody,
+        current: Dict[str, Any] = Depends(admin_dep),
+    ):
         if body.role not in ("user", "admin"):
             raise HTTPException(status_code=400, detail="Invalid role")
+        if current.get("user_id") == user_id:
+            raise HTTPException(status_code=400, detail="Cannot change your own role")
         db = db_getter()
         res = await db.users.update_one({"user_id": user_id}, {"$set": {"role": body.role}})
         if not res.matched_count:
@@ -441,7 +447,9 @@ def build_admin_router(db_getter, get_current_user) -> APIRouter:
         return {"ok": True}
 
     @router.delete("/users/{user_id}")
-    async def delete_user(user_id: str, _: Dict[str, Any] = Depends(admin_dep)):
+    async def delete_user(user_id: str, current: Dict[str, Any] = Depends(admin_dep)):
+        if current.get("user_id") == user_id:
+            raise HTTPException(status_code=400, detail="Cannot delete your own account")
         db = db_getter()
         res = await db.users.delete_one({"user_id": user_id})
         if not res.deleted_count:

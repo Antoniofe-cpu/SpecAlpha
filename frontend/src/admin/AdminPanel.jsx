@@ -419,6 +419,7 @@ function RevenueSeries({ series }) {
 
 /* --------------------------------- USERS ---------------------------------- */
 function UsersTab() {
+    const { user: currentUser } = useAuth();
     const [data, setData] = useState({ items: [], total: 0, page: 1, per_page: 50 });
     const [q, setQ] = useState('');
     const [plan, setPlan] = useState('all');
@@ -496,7 +497,7 @@ function UsersTab() {
                         </thead>
                         <tbody>
                             {data.items.map((u) => (
-                                <UserRow key={u.user_id} u={u} reload={load} />
+                                <UserRow key={u.user_id} u={u} reload={load} currentUserId={currentUser?.user_id} />
                             ))}
                             {data.items.length === 0 && (
                                 <tr>
@@ -513,7 +514,7 @@ function UsersTab() {
     );
 }
 
-function UserRow({ u, reload }) {
+function UserRow({ u, reload, currentUserId }) {
     const planColor = {
         active: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
         trialing: 'bg-sky-500/20 text-sky-300 border-sky-500/30',
@@ -522,16 +523,28 @@ function UserRow({ u, reload }) {
         free: 'bg-white/10 text-gray-300 border-white/10',
     }[u.subscription_status] || 'bg-white/10 text-gray-300 border-white/10';
 
+    const isSelf = currentUserId && u.user_id === currentUserId;
+
     const onExtend = async () => {
         await adminApi.extendTrial(u.user_id, 7);
         await reload();
     };
     const onPromote = async () => {
-        await adminApi.setRole(u.user_id, u.role === 'admin' ? 'user' : 'admin');
+        if (isSelf) {
+            window.alert('Non puoi cambiare il ruolo del tuo stesso account.');
+            return;
+        }
+        const target = u.role === 'admin' ? 'user' : 'admin';
+        if (!window.confirm(`Cambiare il ruolo di ${u.email} a "${target}"?`)) return;
+        await adminApi.setRole(u.user_id, target);
         await reload();
     };
     const onDelete = async () => {
-        if (!window.confirm(`Eliminare l'utente ${u.email}?`)) return;
+        if (isSelf) {
+            window.alert('Non puoi eliminare il tuo stesso account.');
+            return;
+        }
+        if (!window.confirm(`Eliminare l'utente ${u.email}? L'azione è irreversibile.`)) return;
         await adminApi.deleteUser(u.user_id);
         await reload();
     };
@@ -564,26 +577,28 @@ function UserRow({ u, reload }) {
                     <button
                         data-testid={`admin-extend-${u.user_id}`}
                         onClick={onExtend}
-                        title="Estendi trial 7gg"
-                        className="p-1.5 rounded-lg hover:bg-amber-500/15 text-amber-300 border border-white/5"
+                        title="Estendi trial di 7 giorni"
+                        className="px-2 py-1.5 rounded-lg hover:bg-amber-500/15 text-amber-300 border border-white/5 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider"
                     >
-                        <Clock size={13} />
+                        <Clock size={12} /> +7gg
                     </button>
                     <button
                         data-testid={`admin-role-${u.user_id}`}
                         onClick={onPromote}
-                        title={u.role === 'admin' ? 'Demote a user' : 'Promuovi admin'}
-                        className="p-1.5 rounded-lg hover:bg-white/[0.06] text-gray-300 border border-white/5"
+                        title={isSelf ? 'Non puoi modificare il tuo ruolo' : (u.role === 'admin' ? 'Rimuovi privilegi admin' : 'Promuovi a admin')}
+                        disabled={isSelf}
+                        className="px-2 py-1.5 rounded-lg hover:bg-white/[0.06] text-gray-300 border border-white/5 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider disabled:opacity-40 disabled:cursor-not-allowed"
                     >
-                        <Shield size={13} />
+                        <Shield size={12} /> {u.role === 'admin' ? 'User' : 'Admin'}
                     </button>
                     <button
                         data-testid={`admin-delete-${u.user_id}`}
                         onClick={onDelete}
-                        title="Elimina"
-                        className="p-1.5 rounded-lg hover:bg-rose-500/15 text-rose-300 border border-white/5"
+                        title={isSelf ? 'Non puoi eliminare il tuo account' : 'Elimina utente'}
+                        disabled={isSelf}
+                        className="px-2 py-1.5 rounded-lg hover:bg-rose-500/15 text-rose-300 border border-white/5 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider disabled:opacity-40 disabled:cursor-not-allowed"
                     >
-                        <Trash2 size={13} />
+                        <Trash2 size={12} /> Elimina
                     </button>
                 </div>
             </Td>
