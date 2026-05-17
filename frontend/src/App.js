@@ -15,6 +15,7 @@ import {
     LogOut,
     UserCircle2,
     Settings,
+    Lock,
 } from 'lucide-react';
 import './App.css';
 import AssetCard from './components/AssetCard';
@@ -22,6 +23,8 @@ import AssetDetailModal from './components/AssetDetailModal';
 import HelpModal from './components/HelpModal';
 import HeatmapStrip from './components/HeatmapStrip';
 import CurrencyStrengthIndex from './components/CurrencyStrengthIndex';
+import ConfluenceOpportunities from './components/ConfluenceOpportunities';
+import Landing from './components/Landing';
 import AuthModal from './auth/AuthModal';
 import { useAuth, isPremium } from './auth/AuthContext';
 import { startCheckout, openBillingPortal } from './billing/api';
@@ -59,6 +62,28 @@ function CountdownLabel() {
         <span className="font-mono text-[10px] text-gray-500">
             {t('app.next_sync')} <span className="text-amber-400">{days}d {hours}h</span>
         </span>
+    );
+}
+
+function LockableSection({ locked, onUnlock, children }) {
+    if (!locked) return children;
+    return (
+        <div className="relative">
+            <div className="pointer-events-none blur-[10px] saturate-50 opacity-70">{children}</div>
+            <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-6 z-10">
+                <div className="w-12 h-12 rounded-full bg-amber-500/15 border border-amber-500/40 flex items-center justify-center mb-3 shadow-[0_0_30px_-6px_rgba(245,158,11,0.45)]">
+                    <Lock size={18} className="text-amber-300" />
+                </div>
+                <button
+                    type="button"
+                    onClick={onUnlock}
+                    className="px-6 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black font-bold uppercase tracking-[0.22em] text-[12px] transition"
+                    data-testid="section-unlock-btn"
+                >
+                    Sblocca
+                </button>
+            </div>
+        </div>
     );
 }
 
@@ -231,6 +256,14 @@ export default function App() {
         track('page_view', { path: '/' });
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
+
+    // Force anonymous visitors to core scope (cannot expand without auth)
+    useEffect(() => {
+        if (!user && scope === 'all') {
+            setScope('core');
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [user]);
 
     useEffect(() => {
         loadData(scope);
@@ -446,8 +479,18 @@ export default function App() {
                     </div>
                 )}
 
+                {/* Landing hero — only for anonymous visitors */}
+                {!user && (
+                    <Landing
+                        onCta={() => {
+                            const el = document.getElementById('asset-grid-anchor');
+                            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }}
+                    />
+                )}
+
                 {/* Toolbar */}
-                <div className="flex flex-wrap items-center justify-between gap-5">
+                <div id="asset-grid-anchor" className="flex flex-wrap items-center justify-between gap-5">
                     <div>
                         <div className="text-[12px] tracking-[0.3em] uppercase font-bold text-amber-400 mb-2">
                             {t('app.section.kicker')}
@@ -470,12 +513,19 @@ export default function App() {
                             </button>
                             <button
                                 data-testid="scope-all"
-                                onClick={() => setScope('all')}
+                                onClick={() => {
+                                    if (!user) {
+                                        setShowAuth(true);
+                                    } else {
+                                        setScope('all');
+                                    }
+                                }}
                                 className={cn(
-                                    'px-4 py-2 text-[12px] font-semibold uppercase tracking-[0.18em] rounded-xl transition-colors flex items-center gap-2',
+                                    'px-4 py-2 text-[12px] font-semibold uppercase tracking-[0.18em] rounded-xl transition-colors flex items-center gap-2 relative',
                                     scope === 'all' ? 'bg-amber-500 text-black' : 'text-gray-300 hover:text-white'
                                 )}
                             >
+                                {!user && <Lock size={11} className="text-amber-400" />}
                                 <Layers size={13} /> {t('app.scope.all')} ({meta.length})
                             </button>
                         </div>
@@ -618,11 +668,33 @@ export default function App() {
 
                 {/* Currency Strength Index — always uses all currencies in background hydration */}
                 {allCurrencies.length > 0 && (
-                    <CurrencyStrengthIndex assets={allCurrencies} onPick={setActiveId} />
+                    <LockableSection
+                        locked={!premium}
+                        onUnlock={() => (user ? startTrial() : setShowAuth(true))}
+                    >
+                        <CurrencyStrengthIndex assets={allCurrencies} onPick={(id) => premium && setActiveId(id)} />
+                    </LockableSection>
                 )}
 
                 {/* Heatmap */}
-                {snapshots.length > 0 && <HeatmapStrip assets={snapshots} onPick={setActiveId} />}
+                {snapshots.length > 0 && (
+                    <LockableSection
+                        locked={!premium}
+                        onUnlock={() => (user ? startTrial() : setShowAuth(true))}
+                    >
+                        <HeatmapStrip assets={snapshots} onPick={(id) => premium && setActiveId(id)} />
+                    </LockableSection>
+                )}
+
+                {/* COT Trend Opportunities ranked by Confluence Index */}
+                {snapshots.length > 0 && (
+                    <ConfluenceOpportunities
+                        assets={snapshots}
+                        locked={!premium}
+                        onUnlock={() => (user ? startTrial() : setShowAuth(true))}
+                        onPick={(id) => premium && setActiveId(id)}
+                    />
+                )}
 
                 {/* Footer */}
                 <footer className="pt-10 pb-4 border-t border-white/5">

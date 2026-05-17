@@ -1324,9 +1324,6 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                     data-testid="performance-panel"
                                     className="mt-3 bg-[#0e0e14] border border-white/[0.07] rounded-3xl p-5"
                                 >
-                                    <p className="text-[12.5px] text-gray-500 mb-2 leading-relaxed">
-                                        {t('modal.perf_logic')}
-                                    </p>
                                     <p className="text-[12px] text-amber-300/70 mb-4 leading-relaxed bg-amber-500/[0.04] border border-amber-500/15 rounded-xl px-3 py-2">
                                         {t('modal.perf_synth_note')}
                                     </p>

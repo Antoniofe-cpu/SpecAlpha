@@ -417,6 +417,7 @@ class CotSnapshot(BaseModel):
     confluenceComponents: Optional[Dict[str, Any]] = None
     confluenceLabel: Optional[str] = None
     confluenceDirection: Optional[str] = None
+    confluenceMissing: Optional[List[str]] = None
 
 
 # ---------------------------------------------------------------------------
@@ -495,6 +496,7 @@ async def _fetch_snapshot(asset_id: str, force: bool = False, lang: str = "it") 
         snapshot["confluenceLabel"] = ci["label"]
         snapshot["confluenceDirection"] = ci["direction"]
         snapshot["confluenceComponents"] = ci["components"]
+        snapshot["confluenceMissing"] = ci.get("missing", [])
     except Exception as e:  # noqa: BLE001
         logger.warning("Confluence index computation failed for %s: %s", asset_id, e)
     # Always cache the scrape result (short TTL keeps page loads snappy);

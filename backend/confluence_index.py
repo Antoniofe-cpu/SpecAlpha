@@ -143,18 +143,22 @@ def calculate_confluence_index(
     d_opt = _options_direction(options_data)
     d_cm = _comm_direction(cot_snapshot)
 
-    # Renormalise weights when a stream is missing (treats 0 as "no data")
+    # Renormalise weights when a stream is missing (treats 0 as "no data").
+    # CRITICAL: if even one stream is present we compute on what we have —
+    # never return score=0 just because options data is missing.
     streams = [
         ("nonComm", d_nc, WEIGHTS["nonComm"]),
         ("options", d_opt, WEIGHTS["options"]),
         ("comm", d_cm, WEIGHTS["comm"]),
     ]
     present = [(n, v, w) for n, v, w in streams if abs(v) > 0.01]
+    missing = [n for n, v, _ in streams if abs(v) <= 0.01]
     if not present:
         return {
             "score": 0.0,
             "label": _label_for_score(0.0),
             "direction": "neutral",
+            "missing": [n for n, _, _ in streams],
             "components": {
                 "nonComm": round(d_nc, 3),
                 "options": round(d_opt, 3),
@@ -170,17 +174,20 @@ def calculate_confluence_index(
     magnitude_avg = sum(w * abs(v) for _, v, w in present) / total_w
     alignment = abs(signed_avg) / magnitude_avg if magnitude_avg > 1e-9 else 0.0
 
-    # Pure equally-weighted formula: alignment * (0.5 + 0.5*magnitude) on a 0..100 scale.
-    # With alignment=1, magnitude=0.4 → 70  (signal strong & aligned)
-    # With alignment=1, magnitude=0.8 → 90
-    # With alignment=0.33, magnitude=0.5 → 25 (uno contro due)
-    score = 100.0 * alignment * (0.5 + 0.5 * magnitude_avg)
+    # Generous formula: alignment dominates, magnitude has a HIGH floor (0.75)
+    # so well-aligned but moderate signals already score 80+.
+    #   alignment=1, magnitude=0.3 → 100 * 1 * (0.75 + 0.25*0.3) = 82.5
+    #   alignment=1, magnitude=0.5 → 100 * 1 * (0.75 + 0.25*0.5) = 87.5
+    #   alignment=1, magnitude=0.8 → 100 * 1 * (0.75 + 0.25*0.8) = 95
+    #   alignment=0.33               → 33 * (0.75+…)              ≈ 25-30
+    score = 100.0 * alignment * (0.75 + 0.25 * magnitude_avg)
     score = _clip(score, 0.0, 100.0)
 
     return {
         "score": round(score, 1),
         "label": _label_for_score(score),
         "direction": _direction_label(signed_avg),
+        "missing": missing,
         "components": {
             "nonComm": round(d_nc, 3),
             "options": round(d_opt, 3),

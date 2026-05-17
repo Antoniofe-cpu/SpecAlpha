@@ -101,18 +101,13 @@ export default function AssetCard({ asset, isLoading, isFavorite, onClick, onTog
                     <div className="w-12 h-12 rounded-full bg-amber-500/15 border border-amber-500/40 flex items-center justify-center mb-3 shadow-[0_0_30px_-6px_rgba(245,158,11,0.45)]">
                         <Lock size={18} className="text-amber-300" />
                     </div>
-                    <div className="text-[10px] tracking-[0.28em] uppercase font-bold text-amber-300 mb-1">
-                        Premium
-                    </div>
-                    <div className="font-display text-[16px] font-semibold text-white leading-snug mb-2">
-                        {asset.name}
-                    </div>
-                    <p className="text-[12px] text-gray-400 max-w-[220px] leading-relaxed mb-3">
-                        Sblocca questo asset con la prova gratuita di 7 giorni.
-                    </p>
-                    <span className="text-[11px] uppercase tracking-[0.22em] font-bold text-amber-400">
-                        Accedi →
-                    </span>
+                    <button
+                        type="button"
+                        className="px-6 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black font-bold uppercase tracking-[0.22em] text-[12px] transition"
+                        data-testid={`paywall-unlock-btn-${asset.assetId}`}
+                    >
+                        Sblocca
+                    </button>
                 </div>
             )}
         </motion.div>
@@ -166,13 +161,13 @@ function CardBody({ asset, isFavorite, onToggleFav, trend, longRatio, oiText, t 
 
             {asset.confluenceIndex !== undefined && asset.confluenceIndex !== null && (() => {
                 const ci = Number(asset.confluenceIndex);
-                const strengthTone = ci >= 80 ? 'veryhigh' : ci >= 60 ? 'high' : ci >= 40 ? 'moderate' : ci >= 20 ? 'low' : 'verylow';
+                // 3-tier color: AMBER (high agreement) / SKY (moderate) / VIOLET (low)
+                // — distinct from the long/short red/green palette
+                const strengthTone = ci >= 70 ? 'high' : ci >= 40 ? 'moderate' : 'low';
                 const strengthStyles = {
-                    veryhigh: 'from-amber-400/20 to-amber-500/10 border-amber-400/50 text-amber-200',
-                    high: 'from-amber-500/15 to-amber-500/5 border-amber-500/40 text-amber-300',
-                    moderate: 'from-white/[0.06] to-transparent border-white/15 text-gray-200',
-                    low: 'from-white/[0.04] to-transparent border-white/10 text-gray-400',
-                    verylow: 'from-white/[0.02] to-transparent border-white/5 text-gray-500',
+                    high: 'from-amber-400/25 to-amber-500/10 border-amber-400/50 text-amber-200',
+                    moderate: 'from-sky-400/20 to-sky-500/[0.06] border-sky-400/40 text-sky-200',
+                    low: 'from-violet-400/15 to-violet-500/[0.04] border-violet-400/30 text-violet-200',
                 };
                 return (
                     <div
