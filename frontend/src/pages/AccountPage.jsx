@@ -150,7 +150,7 @@ export default function AccountPage() {
                         <InfoRow
                             icon={Sparkles}
                             label={t('account.price')}
-                            value={status === 'free' ? t('account.price_free') : '$24.99 / mo'}
+                            value={status === 'free' ? t('account.price_free') : t('account.price_value')}
                         />
                         {user.trial_ends_at && status === 'trialing' && (
                             <InfoRow
