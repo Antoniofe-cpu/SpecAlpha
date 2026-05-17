@@ -10,7 +10,7 @@ from typing import Dict, Any, List
 import httpx
 
 # Backend URL from frontend/.env
-BASE_URL = "https://ai-verdict-options.preview.emergentagent.com/api"
+BASE_URL = "https://dashboard-auth-phase.preview.emergentagent.com/api"
 
 # Test results storage
 test_results = {
