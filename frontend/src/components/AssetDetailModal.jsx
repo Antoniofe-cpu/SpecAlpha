@@ -449,55 +449,74 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
 
             y += ciH + 6;
 
-            // ---------- Macro Sentiment (full width, dynamic height incl. events) ----------
+            // ---------- Macro Sentiment (full width, auto-grow + clamps) ----------
             const eventsList = (macro?.events || []).slice(0, 5);
             const summaryText = macro?.summary || t('modal.macro_loading');
-            const summaryLines = pdf.splitTextToSize(summaryText, W - M * 2 - 8);
-            const summaryRowH = summaryLines.length * 4;
 
-            // Pre-compute each event's wrapped label height so the panel grows correctly.
+            // Use a slightly smaller font for the summary so long blurbs fit cleanly.
+            const SUMMARY_FONT = 8;
+            const SUMMARY_LH = 4.6;   // mm per line — generous (real ~3.7mm)
+            const EVENT_FONT = 7.5;
+            const EVENT_LH = 4.2;     // mm per line — generous (real ~3.3mm)
+            const SUMMARY_MAX_LINES = 7;
+
+            const summaryLinesAll = pdf.splitTextToSize(summaryText, W - M * 2 - 10);
+            const summaryLines = summaryLinesAll.slice(0, SUMMARY_MAX_LINES);
+            const summaryRowH = summaryLines.length * SUMMARY_LH;
+
+            // Column layout for the events table inside the box.
             const evColX = {
                 country: M + 4,
-                stars:   M + 14,
+                stars:   M + 13,
                 date:    M + 25,
-                event:   M + 46,
+                event:   M + 48,
             };
-            const evRightPad = 32; // reserve for "prev xxx" right-aligned column
-            const evMaxW = W - M - evRightPad - evColX.event;
+            const evRightPad = 38; // reserve for "prev xxx" right-aligned column
+            const evMaxW = (W - M - evRightPad) - evColX.event;
+
             const eventsRows = eventsList.map((e) => {
                 const lines = pdf.splitTextToSize(String(e.event || ''), evMaxW);
                 const wrapped = lines.length > 2 ? lines.slice(0, 2) : lines; // cap at 2 lines
-                return { e, lines: wrapped, h: Math.max(4, wrapped.length * 3.6) };
+                return { e, lines: wrapped, h: Math.max(EVENT_LH, wrapped.length * EVENT_LH) };
             });
-            const eventsRowH = eventsRows.length > 0
-                ? (eventsRows.reduce((s, r) => s + r.h, 0) + 8)
+            const eventsBlockH = eventsRows.length > 0
+                ? eventsRows.reduce((s, r) => s + r.h, 0) + 6  // 6mm divider/breathing room above
                 : 0;
-            const macroH = Math.max(28, 14 + summaryRowH + eventsRowH);
+
+            const macroH = Math.max(
+                30,
+                10 /* header padding */ + summaryRowH + 4 /* gap */ + eventsBlockH + 4 /* bottom padding */
+            );
             ensurePage(macroH + 6);
             panel(M, y, W - M * 2, macroH);
+
+            // Title
             setText([56, 189, 248]); // sky-400
             pdf.setFont('helvetica', 'bold');
             pdf.setFontSize(8);
-            const macroTitle = `${t('modal.macro_sentiment').toUpperCase()}  ·  ${(macro?.eventCount ?? 0)} ${t('modal.events').toUpperCase()}`;
+            const macroTitle = `${t('modal.macro_sentiment').toUpperCase()}  \u00b7  ${(macro?.eventCount ?? 0)} ${t('modal.events').toUpperCase()}`;
             pdf.text(macroTitle, M + 4, y + 6);
+
+            // Summary
             setText(TEXT);
             pdf.setFont('helvetica', 'normal');
-            pdf.setFontSize(8.5);
-            pdf.text(summaryLines, M + 4, y + 12, { lineHeightFactor: 1.35 });
+            pdf.setFontSize(SUMMARY_FONT);
+            pdf.text(summaryLines, M + 4, y + 11, { lineHeightFactor: 1.4 });
 
-            // Render up to 5 macro events with wrapped labels
+            // Events table
             if (eventsRows.length > 0) {
-                let evY = y + 14 + summaryRowH;
+                let evY = y + 10 + summaryRowH + 4;
                 setDraw(BORDER);
                 pdf.setLineWidth(0.15);
                 pdf.line(M + 4, evY - 2, W - M - 4, evY - 2);
                 pdf.setFont('helvetica', 'normal');
-                pdf.setFontSize(7.5);
-                eventsRows.forEach(({ e, lines, h }) => {
+                pdf.setFontSize(EVENT_FONT);
+                eventsRows.forEach(({ e, lines }) => {
+                    // Country
                     setText([56, 189, 248]);
                     pdf.setFont('helvetica', 'bold');
-                    pdf.text(String(e.country || '—').slice(0, 4), evColX.country, evY + 2);
-                    // Stars based on impact (2 or 3)
+                    pdf.text(String(e.country || '\u2014').slice(0, 4), evColX.country, evY + 2);
+                    // Stars
                     const stars = Math.max(0, Math.min(3, Number(e.impact || 0)));
                     if (stars > 0) {
                         setText(AMBER);
@@ -505,18 +524,24 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                         const starStr = '\u2605'.repeat(stars) + '\u2606'.repeat(3 - stars);
                         pdf.text(starStr, evColX.stars, evY + 2);
                     }
+                    // Date
                     setText(MUTED);
                     pdf.setFont('helvetica', 'normal');
-                    pdf.text(String(e.date || ''), evColX.date, evY + 2);
+                    pdf.setFontSize(EVENT_FONT);
+                    pdf.text(String(e.date || '').slice(0, 10), evColX.date, evY + 2);
+                    // Event label (wrapped up to 2 lines)
                     setText(TEXT);
-                    pdf.text(lines, evColX.event, evY + 2, { lineHeightFactor: 1.25 });
-                    if (e.previous) {
+                    pdf.text(lines, evColX.event, evY + 2, { lineHeightFactor: 1.3 });
+                    // Prev value
+                    if (e.previous != null && e.previous !== '') {
                         setText(MUTED);
-                        pdf.text(`prev ${e.previous}`, W - M - 4, evY + 2, { align: 'right' });
+                        const prevStr = String(e.previous).length > 8 ? String(e.previous).slice(0, 8) : String(e.previous);
+                        pdf.text(`prev ${prevStr}`, W - M - 4, evY + 2, { align: 'right' });
                     }
-                    evY += h;
+                    evY += Math.max(EVENT_LH, lines.length * EVENT_LH);
                 });
             }
+
             y += macroH + 6;
 
             // ---------- Final Verdict ----------
