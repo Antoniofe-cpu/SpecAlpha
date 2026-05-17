@@ -165,16 +165,26 @@ def build_billing_router(db_getter, get_current_user) -> APIRouter:
         return {"url": url}
 
     @router.post("/portal")
-    async def portal(body: PortalBody, user: Dict[str, Any] = Depends(get_current_user)):
+    async def portal(body: PortalBody, request: Request, user: Dict[str, Any] = Depends(get_current_user)):
         """Create a Stripe Customer Portal session for managing the subscription."""
         if not user.get("stripe_customer_id"):
             raise HTTPException(status_code=400, detail="No active subscription")
-        return_url = (body.origin_url or "").rstrip("/") or "https://dashboard-auth-phase.preview.emergentagent.com"
+        # Resolve a sensible return URL: explicit body > Origin/Referer > Request host.
+        origin = (body.origin_url or "").rstrip("/")
+        if not origin:
+            hdr = request.headers.get("origin") or request.headers.get("referer") or ""
+            if hdr:
+                # Strip path from Referer if needed
+                from urllib.parse import urlparse
+                p = urlparse(hdr)
+                origin = f"{p.scheme}://{p.netloc}" if p.scheme and p.netloc else ""
+        if not origin:
+            origin = f"{request.url.scheme}://{request.headers.get('host', request.url.netloc)}"
         stripe.api_key = _stripe_key()
         try:
             session = stripe.billing_portal.Session.create(
                 customer=user["stripe_customer_id"],
-                return_url=return_url + "/",
+                return_url=origin + "/dashboard",
             )
         except Exception as e:  # noqa: BLE001
             logger.exception("portal session failed: %s", e)

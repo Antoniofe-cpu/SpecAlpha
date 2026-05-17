@@ -193,18 +193,25 @@ function Hero({ onCta, t, hasUser, premium }) {
                         transition={{ delay: 0.2, duration: 0.6 }}
                         className="font-display text-4xl sm:text-5xl lg:text-[68px] font-bold text-white tracking-tight leading-[1.05] mb-6"
                     >
-                        <span className="relative inline-block">
-                            <span className="text-amber-400">{t('landing.title_a')}</span>
-                            <motion.span
-                                className="absolute -inset-x-2 -bottom-1 h-[3px] bg-gradient-to-r from-transparent via-amber-400/80 to-transparent rounded-full"
-                                initial={{ scaleX: 0 }}
-                                animate={{ scaleX: 1 }}
-                                transition={{ delay: 0.7, duration: 0.9 }}
-                                style={{ transformOrigin: 'left' }}
-                            />
-                        </span>
+                        <span className="text-white">{t('landing.title_a')}</span>
                         {t('landing.title_b') ? ' ' : ''}
-                        <span className="text-white">{t('landing.title_b')}</span>
+                        <motion.span
+                            className="text-amber-400 inline"
+                            style={{
+                                backgroundImage:
+                                    'linear-gradient(transparent calc(100% - 4px), rgba(251,191,36,0.85) 4px)',
+                                backgroundRepeat: 'no-repeat',
+                                backgroundPosition: '0 95%',
+                                paddingBottom: '2px',
+                                WebkitBoxDecorationBreak: 'clone',
+                                boxDecorationBreak: 'clone',
+                            }}
+                            initial={{ backgroundSize: '0% 100%' }}
+                            animate={{ backgroundSize: '100% 100%' }}
+                            transition={{ delay: 0.75, duration: 0.95, ease: [0.22, 1, 0.36, 1] }}
+                        >
+                            {t('landing.title_b')}
+                        </motion.span>
                     </motion.h1>
                     <motion.p
                         initial={{ opacity: 0, y: 8 }}
