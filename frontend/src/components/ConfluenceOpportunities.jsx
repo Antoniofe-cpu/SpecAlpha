@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Lock, TrendingUp, TrendingDown, Minus, Flame } from 'lucide-react';
 import { cn, formatNumber } from '../utils';
+import { useT } from '../i18n';
 
 /**
  * Below the cards grid: a recap of the strongest opportunities, ranked by
@@ -8,6 +9,7 @@ import { cn, formatNumber } from '../utils';
  */
 export default function ConfluenceOpportunities({ assets, locked, onUnlock, onPick }) {
     const [directionalOnly, setDirectionalOnly] = useState(false);
+    const { t } = useT();
 
     const ranked = useMemo(() => {
         let list = (assets || []).filter((a) => typeof a.confluenceIndex === 'number');
@@ -112,7 +114,7 @@ export default function ConfluenceOpportunities({ assets, locked, onUnlock, onPi
                                                             className="inline-flex items-center gap-1 text-[9px] uppercase tracking-[0.2em] px-2 py-1 rounded-full bg-amber-500/20 text-amber-200 border border-amber-500/50 font-bold"
                                                             title="CI ≥ 80, tutti gli stream presenti, direzionale"
                                                         >
-                                                            <Flame size={10} /> Setup forte
+                                                            <Flame size={10} /> {t('opp.strong_setup')}
                                                         </span>
                                                     )}
                                                 </div>

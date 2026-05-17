@@ -16,6 +16,10 @@ import {
     UserCircle2,
     Lock,
     Globe,
+    FileText,
+    SlidersHorizontal,
+    Coins,
+    Gauge,
 } from 'lucide-react';
 import { useAuth, isPremium } from '../auth/AuthContext';
 import AuthModal from '../auth/AuthModal';
@@ -141,11 +145,11 @@ export default function LandingPage() {
 
 /* --------------------------------- HERO --------------------------------- */
 function Hero({ onCta, t, hasUser, premium }) {
-    const stats = [
-        { v: t('landing.stat1_v'), l: t('landing.stat1_l') },
-        { v: t('landing.stat2_v'), l: t('landing.stat2_l') },
-        { v: t('landing.stat3_v'), l: t('landing.stat3_l') },
-        { v: t('landing.stat4_v'), l: t('landing.stat4_l') },
+    const pillars = [
+        { icon: FileText, title: t('landing.pillar1_t'), desc: t('landing.pillar1_d') },
+        { icon: SlidersHorizontal, title: t('landing.pillar2_t'), desc: t('landing.pillar2_d') },
+        { icon: Coins, title: t('landing.pillar3_t'), desc: t('landing.pillar3_d') },
+        { icon: Gauge, title: t('landing.pillar4_t'), desc: t('landing.pillar4_d') },
     ];
     return (
         <section data-testid="landing-hero" className="relative">
@@ -227,11 +231,11 @@ function Hero({ onCta, t, hasUser, premium }) {
                         initial={{ opacity: 0, y: 8 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ delay: 0.5, duration: 0.5 }}
-                        className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-9 max-w-2xl"
-                        data-testid="landing-stats"
+                        className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-9 max-w-4xl"
+                        data-testid="landing-pillars"
                     >
-                        {stats.map((s, i) => (
-                            <StatCard key={s.l} value={s.v} label={s.l} index={i} />
+                        {pillars.map((p, i) => (
+                            <PillarCard key={p.title} icon={p.icon} title={p.title} desc={p.desc} index={i} />
                         ))}
                     </motion.div>
 
@@ -256,33 +260,8 @@ function Hero({ onCta, t, hasUser, premium }) {
     );
 }
 
-/* --------------------------- STAT CARD --------------------------- */
-function StatCard({ value, label, index }) {
-    // Animated count-up when the value is numeric (else display as-is).
-    const numericMatch = /^([\d.]+)([+]?)$/.exec(value);
-    const numeric = numericMatch ? parseFloat(numericMatch[1]) : null;
-    const suffix = numericMatch ? numericMatch[2] : '';
-    const [display, setDisplay] = React.useState(numeric != null ? '0' : value);
-
-    React.useEffect(() => {
-        if (numeric == null) return;
-        const dur = 1100;
-        const start = performance.now();
-        let raf;
-        const tick = (t) => {
-            const p = Math.min(1, (t - start) / dur);
-            // ease-out-cubic
-            const eased = 1 - Math.pow(1 - p, 3);
-            const v = numeric * eased;
-            setDisplay(numeric < 1 || !Number.isFinite(numeric) ? value : Math.round(v).toString());
-            if (p < 1) raf = requestAnimationFrame(tick);
-            else setDisplay(numeric.toString());
-        };
-        raf = requestAnimationFrame(tick);
-        return () => cancelAnimationFrame(raf);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [numeric]);
-
+/* --------------------------- PILLAR CARD --------------------------- */
+function PillarCard({ icon: Icon, title, desc, index }) {
     return (
         <motion.div
             initial={{ opacity: 0, y: 14 }}
@@ -290,6 +269,7 @@ function StatCard({ value, label, index }) {
             transition={{ delay: 0.55 + index * 0.08, duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
             whileHover={{ y: -3, transition: { duration: 0.2 } }}
             className="group relative overflow-hidden rounded-2xl border border-white/[0.08] bg-gradient-to-b from-white/[0.04] to-white/[0.01] backdrop-blur-md p-4 transition-colors hover:border-amber-500/40"
+            data-testid={`pillar-card-${index}`}
         >
             {/* Top accent line */}
             <motion.div
@@ -303,13 +283,15 @@ function StatCard({ value, label, index }) {
             <div className="pointer-events-none absolute -inset-6 bg-amber-500/[0.07] blur-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
 
             <div className="relative">
-                <div className="font-mono text-[26px] sm:text-[28px] font-bold tnum leading-none bg-gradient-to-b from-amber-200 via-amber-300 to-amber-500 bg-clip-text text-transparent">
-                    {display}
-                    {suffix}
+                <div className="w-9 h-9 rounded-xl border border-amber-500/30 bg-amber-500/[0.08] text-amber-300 flex items-center justify-center mb-3">
+                    <Icon size={15} strokeWidth={2.2} />
                 </div>
-                <div className="mt-2 text-[10px] uppercase tracking-[0.2em] text-gray-500 font-bold">
-                    {label}
+                <div className="font-display text-[14px] font-semibold text-white leading-tight mb-1.5">
+                    {title}
                 </div>
+                <p className="text-[11.5px] text-gray-400 leading-relaxed">
+                    {desc}
+                </p>
             </div>
         </motion.div>
     );
