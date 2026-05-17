@@ -30,6 +30,7 @@ import {
     Eye,
     EyeOff,
     TrendingDown,
+    Lock,
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -38,6 +39,35 @@ import { cn, formatNumber, formatSigned, getTrendAnalysis, TONE_CLASSES } from '
 import { useT } from '../i18n';
 import OptionsPanel from './OptionsPanel';
 import SentimentGauge from './SentimentGauge';
+
+/**
+ * Locks the *content* of a section (not its title) for free/anon users.
+ * The title and any wrapping card chrome is rendered by the caller — only the
+ * children inside this component get the blur + overlay treatment.
+ */
+function LockedContent({ locked, onUnlock, children, minHeight = 80 }) {
+    if (!locked) return children;
+    return (
+        <div className="relative" data-testid="modal-locked-section" style={{ minHeight }}>
+            <div className="blur-[8px] saturate-50 opacity-70 pointer-events-none select-none">
+                {children}
+            </div>
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-center">
+                <div className="w-9 h-9 rounded-full bg-amber-500/15 border border-amber-500/40 flex items-center justify-center shadow-[0_0_24px_-6px_rgba(245,158,11,0.6)]">
+                    <Lock size={14} className="text-amber-300" />
+                </div>
+                <button
+                    type="button"
+                    onClick={onUnlock}
+                    data-testid="modal-unlock-btn"
+                    className="px-4 py-2 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black font-bold uppercase tracking-[0.22em] text-[11px] transition"
+                >
+                    Sblocca
+                </button>
+            </div>
+        </div>
+    );
+}
 
 const SERIES = [
     { key: 'netPosition',     label: 'Net',           color: '#f59e0b', gradId: 'gNet', yAxis: 'left', fmt: 'k' },
@@ -49,7 +79,7 @@ const SERIES = [
     { key: 'price',           label: 'Prezzo',        color: '#60a5fa', gradId: 'gPrice', yAxis: 'right', fmt: 'raw' },
 ];
 
-export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleFav }) {
+export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleFav, locked = false, onUnlock }) {
     const { t, lang } = useT();
     const [history, setHistory] = useState([]);
     const [loading, setLoading] = useState(false);
@@ -271,9 +301,8 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
 
             y = 38;
 
-            // ---------- Top row: 3 panels (Sentiment | Net Position | COT Intelligence) ----------
-            const colW = (W - M * 2 - 4 * 2) / 3;
-            // Increase panel height so longer COT Intelligence text wraps cleanly
+            // ---------- Top row: 2 panels (Sentiment | Net Position) ----------
+            const colW = (W - M * 2 - 4) / 2;
             const topPanelH = 50;
             const trendForPdf = getTrendAnalysis(snapshot);
 
@@ -320,20 +349,6 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                 `${t('modal.col.long')} ${formatNumber(snapshot.long)} · ${t('modal.col.short')} ${formatNumber(snapshot.short)}`,
                 x2 + 4, y + 31
             );
-
-            // COT Intelligence panel (asset.macro)
-            const x3 = M + (colW + 4) * 2;
-            panel(x3, y, colW, topPanelH, [22, 18, 6], [110, 80, 0]);
-            setText(AMBER);
-            pdf.setFont('helvetica', 'bold');
-            pdf.setFontSize(7.5);
-            pdf.text(t('modal.macro_intel').toUpperCase(), x3 + 4, y + 6);
-            setText(TEXT);
-            pdf.setFont('helvetica', 'italic');
-            pdf.setFontSize(8);
-            const macroLines = pdf.splitTextToSize(`"${snapshot.macro || '—'}"`, colW - 8);
-            // Render with explicit line height so wrapping is readable inside the panel
-            pdf.text(macroLines.slice(0, 9), x3 + 4, y + 12, { lineHeightFactor: 1.35 });
 
             y += topPanelH + 6;
 
@@ -438,7 +453,24 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
             const summaryText = macro?.summary || t('modal.macro_loading');
             const summaryLines = pdf.splitTextToSize(summaryText, W - M * 2 - 8);
             const summaryRowH = summaryLines.length * 4;
-            const eventsRowH = eventsList.length > 0 ? (eventsList.length * 4 + 6) : 0;
+
+            // Pre-compute each event's wrapped label height so the panel grows correctly.
+            const evColX = {
+                country: M + 4,
+                stars:   M + 14,
+                date:    M + 25,
+                event:   M + 46,
+            };
+            const evRightPad = 32; // reserve for "prev xxx" right-aligned column
+            const evMaxW = W - M - evRightPad - evColX.event;
+            const eventsRows = eventsList.map((e) => {
+                const lines = pdf.splitTextToSize(String(e.event || ''), evMaxW);
+                const wrapped = lines.length > 2 ? lines.slice(0, 2) : lines; // cap at 2 lines
+                return { e, lines: wrapped, h: Math.max(4, wrapped.length * 3.6) };
+            });
+            const eventsRowH = eventsRows.length > 0
+                ? (eventsRows.reduce((s, r) => s + r.h, 0) + 8)
+                : 0;
             const macroH = Math.max(28, 14 + summaryRowH + eventsRowH);
             ensurePage(macroH + 6);
             panel(M, y, W - M * 2, macroH);
@@ -452,39 +484,36 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
             pdf.setFontSize(8.5);
             pdf.text(summaryLines, M + 4, y + 12, { lineHeightFactor: 1.35 });
 
-            // Render up to 5 macro events (country · stars · date · event · prev)
-            if (eventsList.length > 0) {
+            // Render up to 5 macro events with wrapped labels
+            if (eventsRows.length > 0) {
                 let evY = y + 14 + summaryRowH;
                 setDraw(BORDER);
                 pdf.setLineWidth(0.15);
                 pdf.line(M + 4, evY - 2, W - M - 4, evY - 2);
                 pdf.setFont('helvetica', 'normal');
                 pdf.setFontSize(7.5);
-                eventsList.forEach((e) => {
+                eventsRows.forEach(({ e, lines, h }) => {
                     setText([56, 189, 248]);
                     pdf.setFont('helvetica', 'bold');
-                    pdf.text(String(e.country || '—').slice(0, 4), M + 4, evY + 2);
+                    pdf.text(String(e.country || '—').slice(0, 4), evColX.country, evY + 2);
                     // Stars based on impact (2 or 3)
                     const stars = Math.max(0, Math.min(3, Number(e.impact || 0)));
                     if (stars > 0) {
                         setText(AMBER);
                         pdf.setFont('helvetica', 'bold');
                         const starStr = '\u2605'.repeat(stars) + '\u2606'.repeat(3 - stars);
-                        pdf.text(starStr, M + 14, evY + 2);
+                        pdf.text(starStr, evColX.stars, evY + 2);
                     }
                     setText(MUTED);
                     pdf.setFont('helvetica', 'normal');
-                    pdf.text(String(e.date || ''), M + 25, evY + 2);
+                    pdf.text(String(e.date || ''), evColX.date, evY + 2);
                     setText(TEXT);
-                    const evLabel = String(e.event || '');
-                    const evMaxW = W - M * 2 - 8 - 60;
-                    const evClipped = pdf.splitTextToSize(evLabel, evMaxW)[0] || '';
-                    pdf.text(evClipped, M + 48, evY + 2);
+                    pdf.text(lines, evColX.event, evY + 2, { lineHeightFactor: 1.25 });
                     if (e.previous) {
                         setText(MUTED);
-                        pdf.text(`prev ${e.previous}`, W - M - 6, evY + 2, { align: 'right' });
+                        pdf.text(`prev ${e.previous}`, W - M - 4, evY + 2, { align: 'right' });
                     }
-                    evY += 4;
+                    evY += h;
                 });
             }
             y += macroH + 6;
@@ -575,10 +604,10 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                 y = pdf.lastAutoTable.finalY + 8;
 
                 // ---------- Net Position historical sparkline (native SVG-style line) ----------
-                ensurePage(46);
+                ensurePage(56);
                 const histSeries = [...history].slice(0, 26).reverse(); // oldest -> newest
                 const cw = W - M * 2;
-                const ch = 36;
+                const ch = 46; // taller to host the x-axis labels
                 panel(M, y, cw, ch);
                 setText(MUTED);
                 pdf.setFont('helvetica', 'bold');
@@ -595,15 +624,39 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                     const minV = Math.min(0, ...nets);
                     const maxV = Math.max(0, ...nets);
                     const range = Math.max(1, maxV - minV);
+                    // Reserve 6mm at the bottom for the x-axis labels
+                    const axisYOffset = 6;
+                    const plotBottom = y + ch - axisYOffset - 2;
+                    const plotTop = y + 10;
+                    const plotH = plotBottom - plotTop;
                     const px = (i) => M + 4 + (i / (nets.length - 1)) * (cw - 8);
-                    const py = (v) => y + ch - 4 - ((v - minV) / range) * (ch - 12);
+                    const py = (v) => plotBottom - ((v - minV) / range) * plotH;
+                    // Zero line
                     setDraw(BORDER);
                     pdf.setLineWidth(0.15);
                     pdf.line(M + 4, py(0), M + cw - 4, py(0));
+                    // Series line
                     setDraw(AMBER);
                     pdf.setLineWidth(0.5);
                     for (let i = 1; i < nets.length; i++) {
                         pdf.line(px(i - 1), py(nets[i - 1]), px(i), py(nets[i]));
+                    }
+                    // X-axis baseline
+                    setDraw([60, 60, 80]);
+                    pdf.setLineWidth(0.2);
+                    pdf.line(M + 4, plotBottom + 1, M + cw - 4, plotBottom + 1);
+                    // X-axis tick labels (~6 labels evenly spaced; format MM-DD)
+                    setText(MUTED);
+                    pdf.setFont('helvetica', 'normal');
+                    pdf.setFontSize(6.4);
+                    const tickCount = Math.min(6, histSeries.length);
+                    for (let k = 0; k < tickCount; k++) {
+                        const idx = Math.round((k / (tickCount - 1)) * (histSeries.length - 1));
+                        const labelRaw = String(histSeries[idx]?.date || '');
+                        // Use MM-DD for compactness
+                        const labelShort = labelRaw.length >= 10 ? labelRaw.slice(5) : labelRaw;
+                        const align = k === 0 ? 'left' : k === tickCount - 1 ? 'right' : 'center';
+                        pdf.text(labelShort, px(idx), plotBottom + 5, { align });
                     }
                 }
                 y += ch + 6;
@@ -647,19 +700,7 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
             pdf.setFont('helvetica', 'bold');
             pdf.setFontSize(11);
             pdf.text(t('modal.perf_title'), M, y);
-            y += 5;
-            setText(MUTED);
-            pdf.setFont('helvetica', 'normal');
-            pdf.setFontSize(7.5);
-            const logicLines = pdf.splitTextToSize(t('modal.perf_logic'), W - M * 2);
-            pdf.text(logicLines, M, y);
-            y += logicLines.length * 3.2 + 2;
-            setText([200, 160, 60]);
-            pdf.setFont('helvetica', 'italic');
-            pdf.setFontSize(7);
-            const noteLines = pdf.splitTextToSize(t('modal.perf_synth_note'), W - M * 2);
-            pdf.text(noteLines, M, y);
-            y += noteLines.length * 3 + 4;
+            y += 6;
 
             if (perf && perf.bands) {
                 // Render two blocks: ALL signals and HIGH-confluence, each with 24w + 52w windows
@@ -988,6 +1029,7 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                         {macro?.eventCount ?? '—'} {t('modal.events')}
                                     </span>
                                 </div>
+                                <LockedContent locked={locked} onUnlock={onUnlock} minHeight={120}>
                                 {macroLoading ? (
                                     <div className="flex items-center gap-2 text-gray-500 text-[13px]">
                                         <RefreshCw size={14} className="animate-spin text-sky-400/60" />
@@ -1019,6 +1061,7 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                         )}
                                     </>
                                 )}
+                                </LockedContent>
                             </div>
 
                             <div
@@ -1041,6 +1084,7 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                         {t('modal.confidence')} {verdict?.confidence ?? '—'}/5
                                     </span>
                                 </div>
+                                <LockedContent locked={locked} onUnlock={onUnlock} minHeight={120}>
                                 {verdictLoading ? (
                                     <div className="flex items-center gap-2 text-gray-500 text-[13px]">
                                         <RefreshCw size={14} className="animate-spin text-amber-400/60" />
@@ -1092,17 +1136,32 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                 ) : (
                                     <p className="text-[13px] text-gray-500">{t('modal.verdict_unavailable')}</p>
                                 )}
+                                </LockedContent>
                             </div>
                         </div>
 
                         {/* Options & GEX panel — sits above the historical chart */}
-                        {(optionsLoading || options || optionsError) && (
-                            <OptionsPanel
-                                data={options}
-                                loading={optionsLoading}
-                                error={optionsError}
-                                supported={true}
-                            />
+                        {locked ? (
+                            <div className="bg-[#0e0e14] border border-white/[0.07] rounded-3xl p-5">
+                                <div className="flex items-center gap-2 mb-3">
+                                    <Activity size={14} className="text-violet-400" />
+                                    <span className="text-[11px] tracking-[0.28em] uppercase text-violet-300 font-bold">
+                                        Opzioni · GEX
+                                    </span>
+                                </div>
+                                <LockedContent locked={locked} onUnlock={onUnlock} minHeight={160}>
+                                    <OptionsPanel data={options} loading={optionsLoading} error={optionsError} supported={true} />
+                                </LockedContent>
+                            </div>
+                        ) : (
+                            (optionsLoading || options || optionsError) && (
+                                <OptionsPanel
+                                    data={options}
+                                    loading={optionsLoading}
+                                    error={optionsError}
+                                    supported={true}
+                                />
+                            )
                         )}
 
                         {/* Chart */}
@@ -1116,6 +1175,7 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                         </h3>
                                     </div>
                                 </div>
+                                {!locked && (
                                 <div className="flex items-center gap-1 bg-black/30 rounded-2xl border border-white/10 p-1.5">
                                     {[13, 26, 52, 100].map((n) => (
                                         <button
@@ -1133,8 +1193,10 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                         </button>
                                     ))}
                                 </div>
+                                )}
                             </div>
 
+                            <LockedContent locked={locked} onUnlock={onUnlock} minHeight={420}>
                             {/* Series toggles + Zoom controls */}
                             <div className="flex flex-wrap items-center gap-2 mb-4">
                                 {SERIES.map((s) => (
@@ -1300,6 +1362,7 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                     </div>
                                 )}
                             </div>
+                            </LockedContent>
                         </div>
 
                         {/* WoW delta bar chart + table — collapsible (closed by default) */}
@@ -1325,6 +1388,7 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                             </button>
                             {showWowAndHistory && (
                                 <div className="px-5 pb-5 pt-2 grid grid-cols-1 lg:grid-cols-2 gap-6">
+                            <LockedContent locked={locked} onUnlock={onUnlock} minHeight={280}>
                             <div className="bg-[#0e0e14] border border-white/[0.07] rounded-3xl p-6">
                                 <h3 className="font-display text-lg font-bold text-white mb-1">{t('modal.delta_recent')}</h3>
                                 <p className="text-[12px] tracking-[0.25em] uppercase text-gray-500 font-semibold mb-4">
@@ -1409,6 +1473,7 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                     </table>
                                 </div>
                             </div>
+                            </LockedContent>
                                 </div>
                             )}
                         </div>
@@ -1439,6 +1504,7 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                     data-testid="performance-panel"
                                     className="mt-3 bg-[#0e0e14] border border-white/[0.07] rounded-3xl p-5"
                                 >
+                                    <LockedContent locked={locked} onUnlock={onUnlock} minHeight={200}>
                                     <p className="text-[12px] text-amber-300/70 mb-4 leading-relaxed bg-amber-500/[0.04] border border-amber-500/15 rounded-xl px-3 py-2">
                                         {t('modal.perf_synth_note')}
                                     </p>
@@ -1634,6 +1700,7 @@ export default function AssetDetailModal({ asset, onClose, isFavorite, onToggleF
                                     ) : (
                                         <p className="text-[13px] text-gray-500">—</p>
                                     )}
+                                    </LockedContent>
                                 </div>
                             )}
                         </div>

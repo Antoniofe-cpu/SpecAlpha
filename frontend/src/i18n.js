@@ -31,11 +31,11 @@ const STR = {
 
         // Landing
         'landing.kicker': 'Trader Intelligence',
-        'landing.title_a': 'Il report che muove',
+        'landing.title_a': 'Dati oggettivi per leggere',
         'landing.title_b': 'i mercati.',
         'landing.title_c': '',
         'landing.title_d': '',
-        'landing.subtitle': 'Le posizioni dichiarate al CFTC, in una sola vista.',
+        'landing.subtitle': 'Ogni dato disponibile, combinato in un\u2019unica schermata.',
         'landing.pillar1_t': 'COT Report',
         'landing.pillar1_d': 'Posizioni dichiarate al CFTC: institutional, hedger, speculatori. Pubblicate ogni venerdì.',
         'landing.pillar2_t': 'Opzioni',
@@ -395,11 +395,11 @@ const STR = {
 
         // Landing
         'landing.kicker': 'Trader Intelligence',
-        'landing.title_a': 'The report that moves',
+        'landing.title_a': 'Objective data to read',
         'landing.title_b': 'the markets.',
         'landing.title_c': '',
         'landing.title_d': '',
-        'landing.subtitle': 'Positions filed with the CFTC, in a single view.',
+        'landing.subtitle': 'Every available data point, combined into a single view.',
         'landing.pillar1_t': 'COT Report',
         'landing.pillar1_d': 'Positions filed to the CFTC: institutional, hedger, speculators. Released every Friday.',
         'landing.pillar2_t': 'Options',

@@ -661,6 +661,15 @@ export default function App() {
                     onClose={() => setActiveId(null)}
                     isFavorite={favorites.includes(activeAsset.assetId)}
                     onToggleFav={toggleFav}
+                    locked={!premium}
+                    onUnlock={() => {
+                        track('paywall_click', { source: 'modal', assetId: activeAsset.assetId });
+                        if (!user) {
+                            openAuth('register');
+                        } else {
+                            startTrial();
+                        }
+                    }}
                 />
             )}
             <HelpModal open={showHelp} onClose={() => setShowHelp(false)} />

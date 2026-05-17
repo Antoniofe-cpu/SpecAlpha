@@ -48,6 +48,11 @@ Financial dashboard ("Speculative Alpha") computing a 0–100 **Confluence Index
 - **Admin**: filtro periodo (preset 7/30/90gg + custom date range) propagato a `kpis`, `funnel`, `events`, `top-assets`; nuovo endpoint `DELETE /api/admin/events` per purge eventi nel range; icona Trash2 in header.
 - **PDF v2 (export per-asset)**: aggiunto **Confluence Index hero** con score 0-100 colorato per tier + direction pill + 3 stream alignment bars (Non-Comm/Options/Commercial); macro events con ★ rating (2/3 stelle); chip CI in header.
 
+### Phase 8 — Modal paywall + Landing copy + PDF cleanup ✅ DONE (2026-02-17)
+- **Landing copy**: title "Dati oggettivi per leggere i mercati." / "Objective data to read the markets."; subtitle "Ogni dato disponibile, combinato in un'unica schermata."
+- **PDF v2.1**: rimosso pannello COT Intelligence (era ridondante con la macro AI); sparkline Net Position con asse temporale visibile (~6 tick MM-DD); macro events ora wrappano su 2 righe invece di overflow fuori dal box; rimossa descrizione `perf_logic` + `perf_synth_note` dalla sezione track record.
+- **AssetDetailModal soft paywall**: anon/free vedono titoli + Sentiment e Net Position in chiaro; tutto il resto (Macro Sentiment con eventi, Final Verdict, Options/GEX, Storico chart con controlli, Δ WoW + History, Track Record) blurrato con CTA `Sblocca` → trial start o auth modal. Tracking event `paywall_click` con source=`modal`.
+
 ### Backlog (P1 → P2)
 - **P1** Reset-password email reale (Resend o SendGrid)
 - **P1** User menu dropdown completo (profilo, billing, lingua, logout)
