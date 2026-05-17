@@ -436,7 +436,7 @@ export default function App() {
                                 className="px-4 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black text-[13px] font-bold uppercase tracking-[0.18em] flex items-center gap-2 transition-colors"
                             >
                                 <LogIn size={15} />
-                                <span className="hidden sm:inline">Registrati</span>
+                                <span className="hidden sm:inline">{t('app.signup')}</span>
                             </button>
                         )}
                     </div>
