@@ -190,7 +190,7 @@ function Hero({ onCta, t, hasUser, premium }) {
                         initial={{ opacity: 0, y: 12 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ delay: 0.2, duration: 0.6 }}
-                        className="font-display text-4xl sm:text-5xl lg:text-[68px] font-bold text-white tracking-tight leading-[1.02] mb-6"
+                        className="font-display text-4xl sm:text-5xl lg:text-[68px] font-bold text-white tracking-tight leading-[1.05] mb-6"
                     >
                         {t('landing.title_a')}{' '}
                         <span className="relative inline-block">
@@ -199,12 +199,10 @@ function Hero({ onCta, t, hasUser, premium }) {
                                 className="absolute -inset-x-2 -bottom-1 h-[3px] bg-gradient-to-r from-transparent via-amber-400/80 to-transparent rounded-full"
                                 initial={{ scaleX: 0 }}
                                 animate={{ scaleX: 1 }}
-                                transition={{ delay: 0.7, duration: 0.8 }}
+                                transition={{ delay: 0.7, duration: 0.9 }}
                                 style={{ transformOrigin: 'left' }}
                             />
                         </span>
-                        <br />
-                        {t('landing.title_c')}<br />{t('landing.title_d')}
                     </motion.h1>
                     <motion.p
                         initial={{ opacity: 0, y: 8 }}
